@@ -16,12 +16,8 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import Callable, Dict, List, Optional
 
-COUNTRY_NAMES = {
-    'ARE': 'UAE', 'AUS': 'Australia', 'BRA': 'Brazil', 'CHN': 'China',
-    'DEU': 'Germany', 'GBR': 'UK', 'IDN': 'Indonesia', 'IND': 'India',
-    'IRL': 'Ireland', 'JPN': 'Japan', 'KOR': 'South Korea', 'RUS': 'Russia',
-    'SAU': 'Saudi Arabia', 'TUR': 'Turkey', 'USA': 'USA', 'ZAF': 'South Africa',
-}
+from modules.countries import COUNTRY_NAMES
+
 _SAME_COUNTRY = {'US': 'USA'}
 CATEGORIES = ('geopolitics', 'macro', 'technology', 'supply_chain', 'security', 'governance')
 
@@ -175,3 +171,25 @@ def heatmap_view(connect: Callable[[], sqlite3.Connection]) -> List[Dict]:
         return [dict(row) for row in conn.execute('SELECT * FROM v_signal_heatmap_7d')]
     finally:
         conn.close()
+
+
+def recent_signals(connect: Callable[[], sqlite3.Connection], country: str,
+                   days: int = 14, limit: int = 25, today: Optional[date] = None) -> List[Dict]:
+    """A country's signals from the last `days` days, highest impact first
+    (signals without an impact score after the rest, newest first)"""
+    today = today or date.today()
+    codes = [code for code, same in _SAME_COUNTRY.items() if same == country] + [country]
+    conn = connect()
+    try:
+        rows = conn.execute(
+            f"""SELECT r.report_date, s.category, s.title, s.summary, s.impact_score,
+                       s.directional_bias, s.time_horizon
+                FROM signals s JOIN reports r ON r.id = s.report_id
+                WHERE r.country IN ({','.join('?' * len(codes))}) AND r.report_date >= ?
+                ORDER BY s.impact_score IS NULL, s.impact_score DESC, r.report_date DESC
+                LIMIT ?""",
+            (*codes, (today - timedelta(days=days - 1)).isoformat(), limit),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(row) for row in rows]

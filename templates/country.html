@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% from "_macros.html" import risk_chart, report_link %}
+
+{% block title %}{{ country.name }} - OpenClaw Reports UI{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 1rem;">
+    <a href="/countries">← All countries</a>
+</div>
+
+<div class="card">
+    <h2>{{ country.name }}</h2>
+    {% if latest %}
+    <p>
+        Latest: {{ report_link(latest) }}
+        <span class="text-secondary">({{ latest.report_date.strftime('%A %d %B') }})</span>
+        {% if (today - latest.report_date).days > 3 %}<span class="freshness-stale">{{ (today - latest.report_date).days }} days old</span>{% endif %}
+    </p>
+    {% else %}
+    <p class="text-secondary">No reports yet.</p>
+    {% endif %}
+    {% if error %}<div class="alert alert-error" style="margin-top: 0.75rem;">The database could not be read: {{ error }}</div>{% endif %}
+</div>
+
+<div class="country-layout">
+<div>
+    {% if latest %}
+    <div class="card">
+        {% if previous %}
+        <h3>New since {{ previous.report_date.strftime('%a %d %b') }}</h3>
+        <p class="text-secondary"><small>{{ added }} new point{{ '' if added == 1 else 's' }}{% if added > points | length %}, first {{ points | length }} shown{% endif %}
+            &middot; <a href="/reports/{{ latest.safe_id }}/changes">all changes</a></small></p>
+        {% else %}
+        <h3>Key points</h3>
+        {% endif %}
+        {% if points %}
+        <ul class="digest-points">
+            {% for section, text in points %}
+            <li>{% if section %}<span class="text-secondary">{{ section }}:</span> {% endif %}{{ text | truncate(320) }}</li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-secondary">Nothing new.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <h3>Signals, last 14 days</h3>
+        {% if signals %}
+        <div class="table-scroll">
+        <table>
+            <thead><tr><th>Date</th><th>Category</th><th>Signal</th><th>Impact</th><th>Direction</th></tr></thead>
+            <tbody>
+                {% for s in signals %}
+                <tr>
+                    <td class="nowrap">{{ s.report_date }}</td>
+                    <td>{{ s.category | replace('_', ' ') }}</td>
+                    <td>{% if s.summary and s.summary != s.title %}<span title="{{ s.summary }}">{{ s.title }}</span>{% else %}{{ s.title }}{% endif %}</td>
+                    <td>{{ s.impact_score if s.impact_score is not none else '' }}</td>
+                    <td>{{ s.directional_bias or '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        <p class="text-secondary"><small>Highest impact first; signals taken from report sections have no impact score and come after the rest.</small></p>
+        {% else %}
+        <p class="text-secondary">No signals in the last 14 days.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div>
+    {% if country_risk %}
+    {{ risk_chart(country_risk, risk, title="Risk, last 90 days") }}
+    {% else %}
+    <div class="chart"><h4>Risk, last 90 days</h4><p class="chart-note">No risk scores.</p></div>
+    {% endif %}
+
+    <div class="card" style="margin-top: 1rem;">
+        <h3>Recent reports</h3>
+        <ul class="today-list">
+            {% for report in recent %}
+            <li>{{ report_link(report, label=report.report_date.strftime('%a %d %b %Y')) }}</li>
+            {% endfor %}
+        </ul>
+        {% if total > recent | length %}
+        <p style="margin-top: 0.5rem;"><a href="/reports?series={{ country.series | urlencode }}">All {{ total }} {{ country.name }} reports</a></p>
+        {% endif %}
+    </div>
+</div>
+</div>
+{% endblock %}

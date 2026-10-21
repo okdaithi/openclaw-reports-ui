@@ -90,7 +90,7 @@ def test_home_copes_with_no_reports(client):
 
 
 def titles(page: str) -> list[str]:
-    return re.findall(r'<a href="/reports/[^"]+">([^<]+)</a>', page)
+    return re.findall(r'<a href="/reports/[^"]+"[^>]*>([^<]+)</a>', page)
 
 
 def test_design_notes_and_test_runs_are_hidden_until_asked_for(client, reports_dir):

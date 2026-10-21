@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import risk_chart %}
 
 {% block title %}Charts - OpenClaw Reports UI{% endblock %}
 
@@ -28,36 +29,7 @@
 
     <div class="chart-grid" style="margin-top: 1rem;">
         {% for chart in risk.charts %}
-        <div class="chart">
-            <h4>
-                <span>{{ chart.name }}</span>
-                {% if chart.latest %}
-                <span>
-                    {{ chart.latest[1] }}
-                    {% if chart.change is not none and chart.change != 0 %}
-                    <small class="{{ 'text-danger' if chart.change > 0 else 'text-success' }}">{{ '%+d' % chart.change }}</small>
-                    {% endif %}
-                </span>
-                {% endif %}
-            </h4>
-            {% if chart.points %}
-            <svg viewBox="0 0 {{ risk.width }} {{ risk.height }}" role="img"
-                 aria-label="{{ chart.name }}: {{ chart.points | length }} scores, latest {{ chart.latest[1] }} on {{ chart.latest[0].strftime('%d %b') }}">
-                {% for gy in risk.grid %}<line class="axis" x1="0" x2="{{ risk.width }}" y1="{{ gy }}" y2="{{ gy }}" stroke-dasharray="2 4"/>{% endfor %}
-                <line class="axis" x1="0" x2="{{ risk.width }}" y1="{{ risk.height - 4 }}" y2="{{ risk.height - 4 }}"/>
-                {% if chart.points | length > 1 %}<polyline class="line" points="{{ chart.path }}"/>{% endif %}
-                {% for px, py, day, score in chart.points %}
-                <circle class="dot" cx="{{ px }}" cy="{{ py }}" r="2.5"><title>{{ day.strftime('%d %b %Y') }}: {{ score }}</title></circle>
-                {% endfor %}
-            </svg>
-            <div class="chart-note">
-                {{ chart.points | length }} score{{ '' if chart.points | length == 1 else 's' }}, latest {{ chart.latest[0].strftime('%d %b') }}
-                {% if chart.unscored %}&middot; {{ chart.unscored }} not scored{% endif %}
-            </div>
-            {% else %}
-            <p class="chart-note">No scores in this range{% if chart.unscored %} ({{ chart.unscored }} not scored){% endif %}.</p>
-            {% endif %}
-        </div>
+        {% if chart.code in country_slugs %}<a class="chart-link" href="/country/{{ country_slugs[chart.code] }}">{{ risk_chart(chart, risk) }}</a>{% else %}{{ risk_chart(chart, risk) }}{% endif %}
         {% endfor %}
     </div>
 </div>

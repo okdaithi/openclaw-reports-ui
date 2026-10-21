@@ -609,6 +609,45 @@
         .heat td.cell span { display: block; border-radius: 4px; padding: 0.35rem 0; }
         .heat td.empty { color: var(--text-muted); text-align: center; }
 
+
+        /* Read markers: recent reports not opened yet on this device */
+        a.unread { font-weight: 700; }
+        a.unread::before {
+            content: "";
+            display: inline-block;
+            width: 0.5em;
+            height: 0.5em;
+            margin-right: 0.35em;
+            border-radius: 50%;
+            background: var(--accent-primary);
+            vertical-align: middle;
+        }
+
+        /* Digest and country pages */
+        .digest-points { margin: 0.5rem 0 0 1.25rem; }
+        .digest-points li { margin-bottom: 0.5rem; }
+        .country-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 1rem; }
+        .country-grid .card { margin-bottom: 0; }
+        .country-card h3 { margin-top: 0; }
+        .country-risk { margin: 0.25rem 0 0.5rem; }
+        .country-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1.5rem; align-items: start; }
+        .country-layout > * { min-width: 0; }
+        .country-layout .chart { background: var(--bg-secondary); }
+        @media (max-width: 900px) {
+            .country-layout { grid-template-columns: minmax(0, 1fr); }
+        }
+        a.chart-link, a.chart-link:hover { color: inherit; text-decoration: none; display: block; }
+        a.chart-link:hover .chart { border-color: var(--accent-primary); }
+
+        /* Watched searches */
+        .watch-form { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+        .watch-form input { flex: 1; }
+        .watch-list { list-style: none; margin-top: 0.75rem; }
+        .watch-list > li { padding: 0.6rem 0; border-bottom: 1px solid var(--border-light); }
+        .watch-head { display: flex; gap: 0.75rem; align-items: baseline; flex-wrap: wrap; }
+        .watch-head .remove { margin-left: auto; background: transparent; color: var(--text-secondary); padding: 0 0.4rem; font-size: 1.1rem; }
+        .watch-hits { list-style: none; margin: 0.25rem 0 0 0.75rem; font-size: 0.9rem; }
+
         /* Footer */
         footer {
             background: var(--accent-dark);
@@ -715,7 +754,9 @@
             </button>
             <nav aria-label="Main">
                 <a href="/" {% if path == '/' %}class="active" aria-current="page"{% endif %}>Home</a>
+                <a href="/digest" {% if path.startswith('/digest') %}class="active" aria-current="page"{% endif %}>Digest</a>
                 <a href="/reports" {% if path.startswith('/reports') %}class="active" aria-current="page"{% endif %}>Reports</a>
+                <a href="/countries" {% if path.startswith('/countr') %}class="active" aria-current="page"{% endif %}>Countries</a>
                 <a href="/charts" {% if path.startswith('/charts') %}class="active" aria-current="page"{% endif %}>Charts</a>
                 <a href="/database" {% if path.startswith('/database') and not path.startswith('/database/query') %}class="active" aria-current="page"{% endif %}>Database</a>
                 <a href="/database/query" {% if path.startswith('/database/query') %}class="active" aria-current="page"{% endif %}>Query</a>
@@ -762,6 +803,38 @@
         
         // Load saved theme on page load
         updateThemeButton(document.documentElement.getAttribute('data-theme') || 'light');
+
+        // Read markers, kept in this browser only. A report counts as unread
+        // when it is dated in the last 7 days, was not opened here, and is no
+        // older than the day before this browser's first visit (so a first
+        // visit doesn't show the whole archive as unread). Keyed by file name,
+        // which stays the same when a report moves into archive/.
+        (function() {
+            var read = {}, since;
+            var store = function(key, value) { try { localStorage.setItem(key, value); } catch (e) {} };
+            try {
+                (JSON.parse(localStorage.getItem('readReports')) || []).forEach(function(k) { read[k] = 1; });
+                since = localStorage.getItem('readSince');
+            } catch (e) {}
+            var day = function(offset) {
+                var d = new Date(Date.now() + offset * 86400000);
+                return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+            };
+            if (!since) { since = day(-1); store('readSince', since); }
+            var recent = since > day(-7) ? since : day(-7);
+            window.markRead = function(key) {
+                if (read[key]) { return; }
+                read[key] = 1;
+                store('readReports', JSON.stringify(Object.keys(read).slice(-3000)));
+            };
+            window.isUnread = function(key, date) { return !read[key] && !!date && date >= recent; };
+            window.paintUnread = function(root) {
+                (root || document).querySelectorAll('a[data-report-key]').forEach(function(link) {
+                    link.classList.toggle('unread', window.isUnread(link.dataset.reportKey, link.dataset.reportDate));
+                });
+            };
+            window.paintUnread();
+        })();
     </script>
     
     {% block extra_js %}{% endblock %}
