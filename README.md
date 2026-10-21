@@ -139,8 +139,9 @@ every matching row.
 ### Charts
 
 **Charts** shows each country's risk score over the last 30 or 90 days or all
-time, and the last 7 days of signals by category. Risk scores of 0 are left out
-of the lines and counted as "not scored" (most rows were 0 in October 2026). If
+time, and the last 7 days of signals by category. Reports without a risk score
+(blank, or the 0 older loads stored) are left out of the lines and counted as
+"not scored". If
 the last 7 days have no signals, the page links to the 7 days up to the latest.
 
 ### Running queries

@@ -135,9 +135,18 @@ def test_the_charts_page_offers_the_last_week_with_signals(client, db):
     add_signal(db, report, 'macro')
     text = client.get('/charts').get_data(as_text=True)
     assert 'No signals in these 7 days' in text
+    assert 'have no risk score' not in text  # nothing unscored in this data
     assert f'end={day(40)}' in text
     then = client.get(f'/charts?end={day(40)}').get_data(as_text=True)
     assert 'No signals in these 7 days' not in then and 'Back to the last 7 days' in then
+
+
+def test_blank_and_zero_risk_scores_are_both_counted_as_not_scored(client, db):
+    add_report(db, 'CHN', day(2), risk=40)
+    add_report(db, 'CHN', day(1), risk=0)
+    add_report(db, 'CHN', day(0), risk=None)
+    text = client.get('/charts').get_data(as_text=True)
+    assert '2 of 3 reports in this range have no risk score' in text
 
 
 def test_the_charts_page_reports_a_database_it_cannot_read(client, tmp_path, monkeypatch):
