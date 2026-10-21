@@ -13,14 +13,24 @@ so other people and agents can reuse and improve it.
   other reports dated today.
 - **Report browser** — recursively scans a directory of `.md` reports, classifies them
   by type from their path/filename, and lists them newest-first.
-- **Full-text search** — matches report filename, folder path, and file content
-  (with a context snippet on content hits).
+- **Full-text search** — matches report titles, file names, folders and text;
+  results are ranked by how often the term appears (a title or file-name match
+  counts extra), with up to three passages per report and the term marked.
+  Opening a result marks the term in the report too.
 - **Rendered report view** — Markdown → HTML with syntax highlighting, tables,
-  fenced code, TOC, and `nl2br`/`sane_lists` handling.
+  fenced code and `nl2br`/`sane_lists` handling; a contents sidebar for reports
+  with three or more headings; previous/next report of the same series.
+- **What changed** — a report's new, continuing and dropped points compared
+  with the previous report of its series (matched by key words, since reports
+  are rewritten daily).
+- **Charts** — country risk over time (from `v_country_risk_trend`) and a
+  category-by-day grid of the last 7 days of signals.
 - **Database explorer** — read-only SQLite browser: table/view list, schema,
-  row counts, paginated browsing with per-column filters.
+  row counts, paginated browsing with per-column filters, sorting by any
+  column, and CSV download.
 - **SQL query console** — run single `SELECT` statements against the database,
-  with keyword/statement validation.
+  with keyword/statement validation, example queries for the views, a schema
+  sidebar, the first 1,000 rows on the page and all of them as CSV.
 - **Dark mode** — light/dark theme toggle persisted in `localStorage`.
 - **No external assets** — all CSS/JS is inline in the templates; no CDN calls,
   no internet access required at runtime.
@@ -122,7 +132,16 @@ its new place.
 ### Exploring the database
 
 Go to **Database** for the table/view list with row counts, then click a table to
-browse it with pagination and per-column filters.
+browse it: type in the boxes under the column names to filter (any part of the
+value matches), click a column name to sort by it, and use **Download CSV** for
+every matching row.
+
+### Charts
+
+**Charts** shows each country's risk score over the last 30 or 90 days or all
+time, and the last 7 days of signals by category. Risk scores of 0 are left out
+of the lines and counted as "not scored" (most rows were 0 in October 2026). If
+the last 7 days have no signals, the page links to the 7 days up to the latest.
 
 ### Running queries
 

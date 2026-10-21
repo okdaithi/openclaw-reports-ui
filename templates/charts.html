@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}Charts - OpenClaw Reports UI{% endblock %}
+
+{% block content %}
+{% if error %}
+<div class="card">
+    <div class="alert alert-error"><strong>The database could not be read:</strong> {{ error }}</div>
+</div>
+{% else %}
+<div class="card">
+    <h2>Country risk over time</h2>
+    <p class="text-secondary">
+        Risk score (0–100) from each day's country report, {{ risk.first.strftime('%d %b %Y') }} to {{ risk.last.strftime('%d %b %Y') }}.
+    </p>
+    <div class="range-links" role="navigation" aria-label="Time range">
+        {% for key, label in (('30', 'Last 30 days'), ('90', 'Last 90 days'), ('all', 'Everything')) %}
+        {% if key == risk_range %}<span aria-current="true">{{ label }}</span>{% else %}<a href="{{ url_for('charts_page', range=key) }}">{{ label }}</a>{% endif %}
+        {% endfor %}
+    </div>
+    {% if risk.unscored %}
+    <p class="chart-note" style="margin-top: 0.75rem;">
+        {{ risk.unscored }} of {{ risk.scored + risk.unscored }} scores in this range are 0, which looks like "not scored"
+        rather than "no risk", so they are left out of the lines.
+        {% if risk.skipped %}{{ risk.skipped }} row{{ '' if risk.skipped == 1 else 's' }} without a usable date {{ 'was' if risk.skipped == 1 else 'were' }} skipped.{% endif %}
+    </p>
+    {% endif %}
+
+    <div class="chart-grid" style="margin-top: 1rem;">
+        {% for chart in risk.charts %}
+        <div class="chart">
+            <h4>
+                <span>{{ chart.name }}</span>
+                {% if chart.latest %}
+                <span>
+                    {{ chart.latest[1] }}
+                    {% if chart.change is not none and chart.change != 0 %}
+                    <small class="{{ 'text-danger' if chart.change > 0 else 'text-success' }}">{{ '%+d' % chart.change }}</small>
+                    {% endif %}
+                </span>
+                {% endif %}
+            </h4>
+            {% if chart.points %}
+            <svg viewBox="0 0 {{ risk.width }} {{ risk.height }}" role="img"
+                 aria-label="{{ chart.name }}: {{ chart.points | length }} scores, latest {{ chart.latest[1] }} on {{ chart.latest[0].strftime('%d %b') }}">
+                {% for gy in risk.grid %}<line class="axis" x1="0" x2="{{ risk.width }}" y1="{{ gy }}" y2="{{ gy }}" stroke-dasharray="2 4"/>{% endfor %}
+                <line class="axis" x1="0" x2="{{ risk.width }}" y1="{{ risk.height - 4 }}" y2="{{ risk.height - 4 }}"/>
+                {% if chart.points | length > 1 %}<polyline class="line" points="{{ chart.path }}"/>{% endif %}
+                {% for px, py, day, score in chart.points %}
+                <circle class="dot" cx="{{ px }}" cy="{{ py }}" r="2.5"><title>{{ day.strftime('%d %b %Y') }}: {{ score }}</title></circle>
+                {% endfor %}
+            </svg>
+            <div class="chart-note">
+                {{ chart.points | length }} score{{ '' if chart.points | length == 1 else 's' }}, latest {{ chart.latest[0].strftime('%d %b') }}
+                {% if chart.unscored %}&middot; {{ chart.unscored }} not scored{% endif %}
+            </div>
+            {% else %}
+            <p class="chart-note">No scores in this range{% if chart.unscored %} ({{ chart.unscored }} not scored){% endif %}.</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card">
+    <h2>Signals by category, 7 days</h2>
+    <p class="text-secondary">
+        Signals from reports dated {{ signals.days[0].strftime('%d %b') }} to {{ signals.days[-1].strftime('%d %b %Y') }};
+        darker means more signals. Hover a cell for its average impact.
+    </p>
+    {% if not signals.total %}
+    <p class="alert alert-info" style="margin-top: 0.75rem;">
+        No signals in these 7 days.
+        {% if signals.latest %}
+        The latest signal is from {{ signals.latest.strftime('%d %b %Y') }}:
+        <a href="{{ url_for('charts_page', range=risk_range, end=signals.latest.isoformat()) }}">show the 7 days up to then</a>.
+        {% else %}
+        The database has no signals yet.
+        {% endif %}
+    </p>
+    {% endif %}
+    {% if signals.total %}
+    <div class="table-scroll">
+    <table class="heat">
+        <thead>
+            <tr>
+                <th>Category</th>
+                {% for day in signals.days %}<th class="nowrap">{{ day.strftime('%a %d') }}</th>{% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for category, row in signals.grid %}
+            <tr>
+                <th>{{ category | replace('_', ' ') | capitalize }}</th>
+                {% for cell in row %}
+                {% if cell %}
+                <td class="cell"><span style="background: rgba(52, 152, 219, {{ cell.shade }}); color: {{ 'white' if cell.shade > 0.5 else 'inherit' }};"
+                    title="{{ cell.count }} signals, average impact {{ cell.avg_impact }}; {{ cell.negative }} negative, {{ cell.positive }} positive">{{ cell.count }}</span></td>
+                {% else %}
+                <td class="empty">·</td>
+                {% endif %}
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% endif %}
+    {% if request.args.get('end') %}
+    <p style="margin-top: 0.75rem;"><a href="{{ url_for('charts_page', range=risk_range) }}">Back to the last 7 days</a></p>
+    {% endif %}
+</div>
+
+<details class="card">
+    <summary>The database's own 7-day summary (v_signal_heatmap_7d)</summary>
+    {% if heatmap %}
+    <div class="table-scroll">
+    <table>
+        <thead><tr><th>Category</th><th>Signals</th><th>Avg impact</th><th>Avg probability</th><th>Negative</th><th>Positive</th></tr></thead>
+        <tbody>
+            {% for row in heatmap %}
+            <tr>
+                <td>{{ row.category }}</td>
+                <td>{{ row.signal_count }}</td>
+                <td>{{ row.avg_impact | round(1) if row.avg_impact is not none }}</td>
+                <td>{{ row.avg_probability | round(2) if row.avg_probability is not none }}</td>
+                <td>{{ row.negative_count }}</td>
+                <td>{{ row.positive_count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p>Empty: no signals in the last 7 days.</p>
+    {% endif %}
+</details>
+{% endif %}
+{% endblock %}

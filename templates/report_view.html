@@ -21,6 +21,20 @@
 {% endmacro %}
 
 {% block content %}
+<div class="report-layout{% if contents %} has-contents{% endif %}">
+{% if contents %}
+<aside class="report-contents">
+    <details id="contents">
+        <summary>Contents</summary>
+        <ol>
+            {% for level, anchor, text in contents %}
+            <li class="toc-level-{{ level }}"><a href="#{{ anchor }}">{{ text }}</a></li>
+            {% endfor %}
+        </ol>
+    </details>
+</aside>
+{% endif %}
+
 <div class="reading-column">
 <div style="margin-bottom: 1rem;">
     <a href="/reports">← Back to Reports</a>
@@ -28,31 +42,46 @@
 
 {{ series_nav() }}
 
-<div class="card">
+<article class="card">
     <div class="report-header">
         <h2 style="margin-bottom: 0.5rem;">{{ title }}</h2>
         <div class="report-meta">
             {% if report.report_date %}<span>Report date: {{ report.report_date.strftime('%A %d %B %Y') }}</span>{% endif %}
-            <span>📁 {{ report.folder }}</span>
-            <span>📅 {{ report.modified.strftime('%Y-%m-%d %H:%M') }}</span>
-            <span>📊 {{ (report.size / 1024) | round(1) }} KB</span>
+            <span>Updated {{ report.modified.strftime('%Y-%m-%d %H:%M') }}</span>
+            <span>{{ (report.size / 1024) | round(1) }} KB</span>
             <span class="badge badge-info">{{ report.type }}</span>
         </div>
+        {% if nearby.previous %}
+        <p class="report-changes-link">
+            <a href="/reports/{{ report.safe_id }}/changes">What changed since {{ nearby.previous.report_date.strftime('%a %d %b') }}</a>
+        </p>
+        {% endif %}
+        {% if highlight %}
+        <p class="text-secondary" id="highlight-note">
+            Showing matches for "{{ highlight }}" <span id="highlight-count"></span>
+            &middot; <a href="/reports/{{ report.safe_id }}">clear</a>
+        </p>
+        {% endif %}
     </div>
-    
+
     <div class="markdown-content">
         {{ content | safe }}
     </div>
-</div>
+</article>
 
 {{ series_nav() }}
 
-<div class="card">
-    <h3>Report Details</h3>
+<details class="card report-details">
+    <summary>File details</summary>
+    <div class="table-scroll">
     <table>
         <tr>
             <th style="width: 200px;">Filename</th>
             <td>{{ report.filename }}</td>
+        </tr>
+        <tr>
+            <th>Folder</th>
+            <td><code>{{ report.folder }}</code></td>
         </tr>
         <tr>
             <th>Full Path</th>
@@ -71,6 +100,56 @@
             <td>{{ report.size }} bytes ({{ (report.size / 1024) | round(2) }} KB)</td>
         </tr>
     </table>
+    </div>
+</details>
 </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Contents start open where they sit beside the report, folded on narrow screens
+    (function() {
+        var contents = document.getElementById('contents');
+        if (contents && window.matchMedia('(min-width: 1180px)').matches) {
+            contents.open = true;
+        }
+    })();
+
+    // Mark the search term in the report (text nodes only, so the report's
+    // HTML is never re-parsed) and scroll to the first match
+    (function() {
+        var term = {{ highlight | tojson }};
+        if (!term) { return; }
+        var root = document.querySelector('.markdown-content');
+        var needle = term.toLowerCase();
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        var nodes = [];
+        while (walker.nextNode()) { nodes.push(walker.currentNode); }
+        var count = 0;
+        nodes.forEach(function(node) {
+            var text = node.nodeValue;
+            var lower = text.toLowerCase();
+            var at = lower.indexOf(needle);
+            if (at < 0) { return; }
+            var frag = document.createDocumentFragment();
+            var cursor = 0;
+            while (at >= 0) {
+                frag.appendChild(document.createTextNode(text.slice(cursor, at)));
+                var mark = document.createElement('mark');
+                mark.textContent = text.slice(at, at + term.length);
+                frag.appendChild(mark);
+                count += 1;
+                cursor = at + term.length;
+                at = lower.indexOf(needle, cursor);
+            }
+            frag.appendChild(document.createTextNode(text.slice(cursor)));
+            node.parentNode.replaceChild(frag, node);
+        });
+        document.getElementById('highlight-count').textContent =
+            '(' + count + ' in the text)';
+        var first = root.querySelector('mark');
+        if (first) { first.scrollIntoView({block: 'center'}); }
+    })();
+</script>
 {% endblock %}

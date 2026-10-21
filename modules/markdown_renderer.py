@@ -1,14 +1,11 @@
 """
 Markdown Renderer - Converts markdown to HTML with syntax highlighting
 """
+import html as html_lib
 import re
 
 import markdown
 import nh3
-from markdown.extensions.codehilite import CodeHiliteExtension
-from markdown.extensions.tables import TableExtension
-from markdown.extensions.fenced_code import FencedCodeExtension
-from markdown.extensions.toc import TocExtension
 
 
 # Raw HTML embedded in reports passes through Python-Markdown untouched, so the
@@ -44,8 +41,11 @@ _LEADING_H1 = re.compile(r'^\s*<h1\b[^>]*>.*?</h1>\s*', re.DOTALL)
 
 
 class MarkdownRenderer:
-    def __init__(self):
-        self.md = markdown.Markdown(
+    @staticmethod
+    def _new_markdown() -> markdown.Markdown:
+        # A fresh converter per report: Flask serves requests on several
+        # threads, and one shared converter mixes their output and headings.
+        return markdown.Markdown(
             extensions=[
                 'extra',
                 'codehilite',
@@ -62,24 +62,25 @@ class MarkdownRenderer:
                 }
             }
         )
-    
+
     def render(self, content: str, strip_title: bool = False) -> str:
         """Render markdown to sanitized HTML.
 
         strip_title drops a leading H1 so a page that already shows the
         report title in its own header doesn't repeat it.
         """
-        # Reset the markdown instance
-        self.md.reset()
-        
-        # Convert to HTML
-        html = self.md.convert(content)
-        
-        html = sanitize_html(html)
+        return self.render_with_contents(content, strip_title)[0]
+
+    def render_with_contents(self, content: str, strip_title: bool = False,
+                             max_level: int = 3) -> tuple:
+        """Sanitized HTML and the report's headings as (level, id, text)
+        for a table of contents; a stripped title is left out."""
+        md = self._new_markdown()
+        html = sanitize_html(md.convert(content))
         if strip_title:
             html = _LEADING_H1.sub('', html, count=1)
-        return html
-    
+        return html, _contents(getattr(md, 'toc_tokens', []), strip_title, max_level)
+
     def extract_title(self, content: str) -> str:
         """Extract title from markdown (first H1)"""
         lines = content.split('\n')
@@ -87,3 +88,21 @@ class MarkdownRenderer:
             if line.startswith('# '):
                 return line[2:].strip()
         return "Untitled Report"
+
+
+def _contents(tokens: list, strip_title: bool, max_level: int) -> list:
+    found = []
+
+    def walk(level_tokens):
+        for token in level_tokens:
+            if token['level'] <= max_level:
+                found.append((token['level'], token['id'], html_lib.unescape(token['name'])))
+            walk(token['children'])
+
+    if strip_title and tokens and tokens[0]['level'] == 1:
+        tokens = tokens[0]['children'] + tokens[1:]
+    walk(tokens)
+    if found:
+        top = min(level for level, _, _ in found)
+        found = [(level - top + 1, anchor, text) for level, anchor, text in found]
+    return found

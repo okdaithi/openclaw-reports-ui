@@ -98,66 +98,95 @@
             padding: 0 20px;
         }
         
-        /* Header */
+        /* Header: one compact row that stays at the top */
         header {
             background: var(--accent-dark);
             color: white;
-            padding: 1rem 0;
+            padding: 0.5rem 0;
             box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            position: relative;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
-        
+
+        .header-row {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
         header h1 {
-            font-size: 1.5rem;
-            margin-bottom: 0.5rem;
+            font-size: 1.25rem;
+            white-space: nowrap;
         }
-        
+
+        header h1 a { color: inherit; }
+        header h1 a:hover { text-decoration: none; }
+
         nav {
             display: flex;
-            gap: 2rem;
-            margin-top: 1rem;
+            gap: 0.25rem;
             align-items: center;
+            flex: 1;
+            order: 2;
         }
-        
+
         nav a {
             color: #ecf0f1;
             text-decoration: none;
-            padding: 0.5rem 1rem;
+            padding: 0.5rem 0.9rem;
             border-radius: 4px;
             transition: background 0.3s;
+            white-space: nowrap;
         }
-        
+
         nav a:hover, nav a.active {
             background: var(--accent-darker);
+            text-decoration: none;
         }
-        
+
         /* Dark mode toggle */
         .theme-toggle {
+            order: 3;
             margin-left: auto;
             background: transparent;
             border: 1px solid #ecf0f1;
             color: #ecf0f1;
-            padding: 0.5rem 1rem;
+            padding: 0.4rem 0.8rem;
             border-radius: 4px;
             cursor: pointer;
             font-size: 0.9rem;
             display: flex;
             align-items: center;
             gap: 0.5rem;
+            white-space: nowrap;
         }
-        
+
         .theme-toggle:hover {
             background: var(--accent-darker);
         }
-        
+
+        /* Headings reached by a link land below the sticky header */
+        [id] { scroll-margin-top: 5rem; }
+
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+            white-space: nowrap;
+        }
+
         /* Main content */
         main {
             padding: 2rem 0;
             min-height: calc(100vh - 200px);
         }
         
-        /* Cards */
+        /* Cards (a table wider than its card scrolls inside it) */
         .card {
+            overflow-x: auto;
             background: var(--bg-secondary);
             border-radius: 8px;
             padding: 1.5rem;
@@ -417,6 +446,8 @@
         
         .text-secondary { color: var(--text-secondary); }
         .text-muted { color: var(--text-muted); }
+        .text-danger { color: var(--danger); }
+        .text-success { color: var(--success); }
         
 
         /* Today panel */
@@ -484,6 +515,100 @@
             padding: 0.5rem 0;
         }
 
+
+        /* Report page: contents beside the report on wide screens */
+        .report-layout.has-contents .reading-column { margin: 0; }
+        .report-contents details {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            font-size: 0.9rem;
+        }
+        .report-contents ol { list-style: none; margin-top: 0.5rem; }
+        .report-contents li { padding: 0.15rem 0; line-height: 1.35; }
+        .report-contents .toc-level-2 { padding-left: 0.9rem; font-size: 0.85rem; }
+        .report-contents .toc-level-3 { padding-left: 1.8rem; font-size: 0.8rem; }
+        summary { cursor: pointer; font-weight: 600; }
+        details.card > summary { font-size: 1.1rem; }
+        details[open].card > summary { margin-bottom: 0.75rem; }
+        @media (min-width: 1180px) {
+            .report-layout.has-contents {
+                display: grid;
+                grid-template-columns: 250px minmax(0, 820px);
+                justify-content: center;
+                gap: 2rem;
+                align-items: start;
+            }
+            .report-contents {
+                position: sticky;
+                top: 4.5rem;
+                max-height: calc(100vh - 5.5rem);
+                overflow-y: auto;
+            }
+        }
+        @media (max-width: 1179px) {
+            .report-layout.has-contents { max-width: 820px; margin: 0 auto; }
+        }
+        .report-changes-link { margin-top: 0.75rem; }
+        mark { background: #ffe066; color: #222; border-radius: 2px; padding: 0 1px; }
+        [data-theme="dark"] mark { background: #b8860b; color: #fff; }
+
+        /* What changed */
+        .change-list { margin: 0.25rem 0 1rem 1.25rem; }
+        .change-list li { margin-bottom: 0.5rem; }
+        .change-added li::marker { color: var(--success); }
+        .change-dropped li { color: var(--text-secondary); }
+
+        /* Search results */
+        .snippet { display: block; color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.25rem; }
+
+        /* Database tables */
+        .filter-row input {
+            padding: 0.35rem 0.5rem;
+            font-size: 0.85rem;
+            min-width: 6rem;
+        }
+        .table-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; margin-top: 0.75rem; }
+        .btn-small { padding: 0.4rem 0.9rem; font-size: 0.9rem; }
+
+        /* Query page */
+        .query-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 1.5rem; align-items: start; }
+        .query-layout > * { min-width: 0; }
+        .schema-list { font-size: 0.85rem; }
+        .schema-list details { padding: 0.2rem 0; border-bottom: 1px solid var(--border-light); }
+        .schema-list summary { font-weight: 500; }
+        .schema-list ul { list-style: none; margin: 0.25rem 0 0.5rem 1rem; }
+        .schema-list code { background: transparent; padding: 0; }
+        .examples { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+        .examples a {
+            display: inline-block;
+            padding: 0.3rem 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 999px;
+            font-size: 0.85rem;
+        }
+        @media (max-width: 900px) {
+            .query-layout { grid-template-columns: 1fr; }
+        }
+
+        /* Charts */
+        .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+        .chart { border: 1px solid var(--border-light); border-radius: 6px; padding: 0.75rem; }
+        .chart h4 { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.95rem; }
+        .chart svg { width: 100%; height: auto; display: block; margin-top: 0.25rem; }
+        .chart .axis { stroke: var(--border-color); stroke-width: 1; }
+        .chart .line { fill: none; stroke: var(--accent-primary); stroke-width: 2; }
+        .chart .dot { fill: var(--accent-primary); }
+        .chart-note { font-size: 0.8rem; color: var(--text-secondary); }
+        .range-links { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .range-links a, .range-links span { padding: 0.25rem 0.75rem; border: 1px solid var(--border-color); border-radius: 999px; font-size: 0.85rem; }
+        .range-links span { background: var(--accent-primary); color: white; border-color: var(--accent-primary); }
+        .heat td.cell { text-align: center; min-width: 3.5rem; }
+        .heat td.cell span { display: block; border-radius: 4px; padding: 0.35rem 0; }
+        .heat td.empty { color: var(--text-muted); text-align: center; }
+
         /* Footer */
         footer {
             background: var(--accent-dark);
@@ -520,13 +645,52 @@
         
         /* Responsive */
         @media (max-width: 768px) {
-            nav {
-                flex-direction: column;
-                gap: 0.5rem;
+            .container {
+                padding: 0 16px;
             }
-            
+
+            /* Title and theme button on one line, the menu scrolls sideways below */
+            .header-row {
+                flex-wrap: wrap;
+                gap: 0.25rem 1rem;
+            }
+
+            header h1 {
+                font-size: 1.1rem;
+                flex: 1;
+            }
+
+            nav {
+                order: 3;
+                flex-basis: 100%;
+                overflow-x: auto;
+                scrollbar-width: none;
+                gap: 0;
+            }
+
+            nav a {
+                padding: 0.4rem 0.55rem;
+                font-size: 0.95rem;
+            }
+
             .theme-toggle {
-                margin-left: 0;
+                order: 2;
+            }
+
+            .theme-toggle #theme-text {
+                display: none;
+            }
+
+            main {
+                padding: 1rem 0;
+            }
+
+            .card {
+                padding: 1rem;
+            }
+
+            th, td {
+                padding: 0.5rem;
             }
             
             .stats-grid {
@@ -541,18 +705,20 @@
     {% block extra_css %}{% endblock %}
 </head>
 <body>
+    {% set path = request.path %}
     <header>
-        <div class="container">
-            <h1>🔍 OpenClaw Reports UI</h1>
-            <nav>
-                <a href="/" {% if request.path == '/' %}class="active"{% endif %}>Home</a>
-                <a href="/reports" {% if '/reports' in request.path %}class="active"{% endif %}>Reports</a>
-                <a href="/database" {% if '/database' in request.path %}class="active"{% endif %}>Database</a>
-                <a href="/database/query" {% if '/query' in request.path %}class="active"{% endif %}>Query</a>
-                <button class="theme-toggle" onclick="toggleTheme()">
-                    <span id="theme-icon">🌙</span>
-                    <span id="theme-text">Dark Mode</span>
-                </button>
+        <div class="container header-row">
+            <h1><a href="/"><span aria-hidden="true">🔍 </span>OpenClaw Reports</a></h1>
+            <button class="theme-toggle" onclick="toggleTheme()" aria-label="Switch between light and dark mode">
+                <span id="theme-icon" aria-hidden="true">🌙</span>
+                <span id="theme-text">Dark Mode</span>
+            </button>
+            <nav aria-label="Main">
+                <a href="/" {% if path == '/' %}class="active" aria-current="page"{% endif %}>Home</a>
+                <a href="/reports" {% if path.startswith('/reports') %}class="active" aria-current="page"{% endif %}>Reports</a>
+                <a href="/charts" {% if path.startswith('/charts') %}class="active" aria-current="page"{% endif %}>Charts</a>
+                <a href="/database" {% if path.startswith('/database') and not path.startswith('/database/query') %}class="active" aria-current="page"{% endif %}>Database</a>
+                <a href="/database/query" {% if path.startswith('/database/query') %}class="active" aria-current="page"{% endif %}>Query</a>
             </nav>
         </div>
     </header>
@@ -565,7 +731,7 @@
     
     <footer>
         <div class="container">
-            <p>OpenClaw Reports UI | Local Access Only | Read-Only Mode</p>
+            <p>OpenClaw Reports UI | Read-Only Mode</p>
         </div>
     </footer>
     

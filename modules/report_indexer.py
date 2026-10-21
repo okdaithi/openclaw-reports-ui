@@ -14,6 +14,8 @@ DEFAULT_REPORTS_DIR = os.environ.get("OPENCLAW_REPORTS_DIR", "/home/dg/openclaw-
 # and the date come from the file name, not from its folder or mtime.
 _DATED_NAME = re.compile(r'^(?P<series>.+?)[-_](?P<date>\d{4}-\d{2}-\d{2})(?P<rest>.*)\.md$')
 _TITLE_BYTES = 4096
+SNIPPETS = 3
+_SNIPPET_CONTEXT = 70
 _HEADING = re.compile(r'^#{1,6}\s+(.+?)\s*#*\s*$')
 
 # Dated files that describe the system rather than report on the world
@@ -87,7 +89,9 @@ class ReportIndexer:
                 report_type = self._classify_report(str(relative_path))
                 named = parse_name(filename)
                 if named['kind'] == 'system':
-                    report_type = 'System'
+                    report_type = 'System document'
+                elif named['kind'] == 'test':
+                    report_type = 'Test run'
                 
                 self._index.append({
                     **named,
@@ -212,41 +216,46 @@ class ReportIndexer:
             return f"Error reading file: {e}"
     
     def search(self, query: str) -> List[Dict]:
-        """Search reports by filename or content"""
+        """Reports containing `query` (case-insensitive), most matches first.
+
+        Each hit carries `hits` (times the text appears), `match_type`
+        (title, filename, path or content) and up to SNIPPETS `snippets`,
+        each a list of (text, is_match) parts so a page can mark the matches
+        without trusting the report's text as HTML.
+        """
         if not query:
             return self._index
-        
-        query_lower = query.lower()
+
+        needle = re.compile(re.escape(query), re.IGNORECASE)
         results = []
-        
         for report in self._index:
-            # Search in filename
-            if query_lower in report['filename'].lower():
-                results.append({**report, 'match_type': 'filename'})
-                continue
-            
-            # Search in folder path
-            if query_lower in report['folder'].lower():
-                results.append({**report, 'match_type': 'path'})
-                continue
-            
-            # Search in content (expensive, so do last)
             content = self.read_content(report['path'])
-            if query_lower in content.lower():
-                # Find context snippet
-                idx = content.lower().find(query_lower)
-                start = max(0, idx - 50)
-                end = min(len(content), idx + 100)
-                snippet = content[start:end].replace('\n', ' ')
-                
-                results.append({
-                    **report,
-                    'match_type': 'content',
-                    'snippet': f"...{snippet}..."
-                })
-        
+            spans = [m.span() for m in needle.finditer(content)]
+            in_title = bool(report['title'] and needle.search(report['title']))
+            in_name = bool(needle.search(report['filename']))
+            in_path = bool(needle.search(report['folder']))
+            if not (spans or in_name or in_path):
+                continue
+            if in_title:
+                match_type = 'title'
+            elif in_name:
+                match_type = 'filename'
+            elif in_path and not spans:
+                match_type = 'path'
+            else:
+                match_type = 'content'
+            # A match in the title or name counts as much as several in the text
+            score = len(spans) + (5 if in_title else 0) + (3 if in_name else 0)
+            results.append({
+                **report,
+                'match_type': match_type,
+                'hits': len(spans),
+                'score': score,
+                'snippets': _snippets(content, spans),
+            })
+        results.sort(key=lambda r: (r['score'], r['modified']), reverse=True)
         return results
-    
+
     def get_stats(self) -> Dict:
         """Get statistics about indexed reports"""
         if not self._index:
@@ -264,3 +273,40 @@ class ReportIndexer:
             'oldest': min(r['modified'] for r in self._index),
             'newest': max(r['modified'] for r in self._index)
         }
+
+
+def _snippets(content: str, spans: List[tuple]) -> List[List[tuple]]:
+    """Up to SNIPPETS non-overlapping passages around the matches in `spans`"""
+    found = []
+    last_end = -1
+    for start, end in spans:
+        if len(found) == SNIPPETS:
+            break
+        if start < last_end:
+            continue  # already shown in the previous passage
+        lo = max(0, start - _SNIPPET_CONTEXT)
+        hi = min(len(content), end + _SNIPPET_CONTEXT)
+        parts = []
+        cursor = lo
+        for m_start, m_end in spans:
+            if m_end <= lo or m_start >= hi:
+                continue
+            m_start, m_end = max(m_start, lo), min(m_end, hi)
+            if m_start > cursor:
+                parts.append((_flatten(content[cursor:m_start]), False))
+            parts.append((content[m_start:m_end], True))
+            cursor = m_end
+        if cursor < hi:
+            parts.append((_flatten(content[cursor:hi]), False))
+        if lo > 0:
+            parts.insert(0, ('…', False))
+        if hi < len(content):
+            parts.append(('…', False))
+        found.append(parts)
+        last_end = hi
+    return found
+
+
+def _flatten(text: str) -> str:
+    """Markdown fragment as one line of plain-ish text"""
+    return re.sub(r'\s+', ' ', text.replace('**', '').replace('#', ''))

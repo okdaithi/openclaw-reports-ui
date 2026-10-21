@@ -15,11 +15,20 @@
         <span class="badge badge-success">Table</span>
         {% endif %}
     </h2>
-    <p>Total rows: {{ total }} | Showing {{ rows | length }} rows (page {{ page }} of {{ total_pages }})</p>
+    <p>
+        {% if filters %}{{ total }} matching row{{ '' if total == 1 else 's' }} &middot; {% else %}{{ total }} rows &middot; {% endif %}
+        page {{ page }} of {{ total_pages }}
+        {% if sort %}&middot; sorted by <code>{{ sort }}</code> {{ 'newest/highest first' if descending else 'oldest/lowest first' }}{% endif %}
+    </p>
+    <div class="table-actions">
+        <a class="btn btn-small" href="{{ csv_link }}" download>Download CSV{% if filters %} (filtered){% endif %}</a>
+        {% if filters %}<a href="{{ url_for('view_table', table_name=table_name) }}">Clear filters</a>{% endif %}
+    </div>
 </div>
 
-<div class="card">
-    <h3>Table Schema</h3>
+<details class="card">
+    <summary>Columns ({{ table_info.columns | length }})</summary>
+    <div class="table-scroll">
     <table>
         <thead>
             <tr>
@@ -41,18 +50,34 @@
             {% endfor %}
         </tbody>
     </table>
-</div>
+    </div>
+</details>
 
-{% if rows %}
 <div class="card">
-    <h3>Data (Page {{ page }} / {{ total_pages }})</h3>
-    
-    <div style="overflow-x: auto;">
+    <form method="get" id="table-form">
+        <input type="hidden" name="per_page" value="{{ per_page }}">
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="dir" value="{{ 'desc' if descending else 'asc' }}">
+        <div class="table-scroll">
         <table>
             <thead>
                 <tr>
                     {% for col in table_info.columns %}
-                    <th>{{ col.name }}</th>
+                    <th class="nowrap">
+                        {% if sort == col.name %}
+                        <a href="{{ link(sort=col.name, dir='asc' if descending else 'desc', page='') }}" aria-sort="{{ 'descending' if descending else 'ascending' }}">{{ col.name }} {{ '▼' if descending else '▲' }}</a>
+                        {% else %}
+                        <a href="{{ link(sort=col.name, dir='desc', page='') }}">{{ col.name }}</a>
+                        {% endif %}
+                    </th>
+                    {% endfor %}
+                </tr>
+                <tr class="filter-row">
+                    {% for col in table_info.columns %}
+                    <th>
+                        <input type="text" name="filter_{{ col.name }}" value="{{ filters.get(col.name, '') }}"
+                               placeholder="filter" aria-label="Filter {{ col.name }}">
+                    </th>
                     {% endfor %}
                 </tr>
             </thead>
@@ -65,68 +90,60 @@
                         {% if value is none %}
                         <em class="text-muted">NULL</em>
                         {% elif value is string and value | length > 100 %}
-                        {{ value[:100] }}...
+                        <span title="{{ value }}">{{ value[:100] }}…</span>
                         {% else %}
                         {{ value }}
                         {% endif %}
                     </td>
                     {% endfor %}
                 </tr>
+                {% else %}
+                <tr><td colspan="{{ table_info.columns | length }}">No rows{% if filters %} match these filters{% endif %}.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
-    </div>
+        </div>
+        <div class="table-actions">
+            <button type="submit" class="btn-small">Apply filters</button>
+            <small class="text-secondary">Filters match any part of the value (Enter applies them).</small>
+        </div>
+    </form>
 </div>
 
 {% if total_pages > 1 %}
 <div class="pagination">
     {% if page > 1 %}
-    <a href="?page=1&per_page={{ per_page }}">« First</a>
-    <a href="?page={{ page - 1 }}&per_page={{ per_page }}">‹ Prev</a>
+    <a href="{{ link(page=1) }}">« First</a>
+    <a href="{{ link(page=page - 1) }}">‹ Prev</a>
     {% endif %}
-    
+
     {% for p in range([1, page - 2] | max, [total_pages, page + 2] | min + 1) %}
         {% if p == page %}
         <span class="active">{{ p }}</span>
         {% else %}
-        <a href="?page={{ p }}&per_page={{ per_page }}">{{ p }}</a>
+        <a href="{{ link(page=p) }}">{{ p }}</a>
         {% endif %}
     {% endfor %}
-    
+
     {% if page < total_pages %}
-    <a href="?page={{ page + 1 }}&per_page={{ per_page }}">Next ›</a>
-    <a href="?page={{ total_pages }}&per_page={{ per_page }}">Last »</a>
+    <a href="{{ link(page=page + 1) }}">Next ›</a>
+    <a href="{{ link(page=total_pages) }}">Last »</a>
     {% endif %}
 </div>
 {% endif %}
 
-{% else %}
 <div class="card">
-    <p>No data in this table.</p>
-</div>
-{% endif %}
-
-<div class="card">
-    <h3>Options</h3>
-    <form method="get" style="margin-top: 1rem;">
-        <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 1rem;">
-            <div class="form-group" style="margin: 0;">
-                <label>Rows per page</label>
-                <select name="per_page">
-                    <option value="25" {% if per_page == 25 %}selected{% endif %}>25</option>
-                    <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
-                    <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
-                    <option value="200" {% if per_page == 200 %}selected{% endif %}>200</option>
-                </select>
-            </div>
-            <div class="form-group" style="margin: 0;">
-                <label>Page</label>
-                <input type="number" name="page" value="{{ page }}" min="1" max="{{ total_pages }}">
-            </div>
-            <div style="align-self: flex-end;">
-                <button type="submit">Go</button>
-            </div>
-        </div>
+    <form method="get" class="table-actions">
+        {% for col, value in filters.items() %}<input type="hidden" name="filter_{{ col }}" value="{{ value }}">{% endfor %}
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="dir" value="{{ 'desc' if descending else 'asc' }}">
+        <label for="per-page" style="margin: 0;">Rows per page</label>
+        <select name="per_page" id="per-page" style="width: auto;" onchange="this.form.submit()">
+            {% for n in (25, 50, 100, 200) %}
+            <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+        </select>
+        <noscript><button type="submit" class="btn-small">Go</button></noscript>
     </form>
 </div>
 {% endblock %}

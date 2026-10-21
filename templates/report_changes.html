@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Changes: {{ report.title or report.filename }} - OpenClaw Reports UI{% endblock %}
+
+{% macro points(grouped, css) %}
+{% for section, texts in grouped %}
+<h4>{{ section or 'Opening' }}</h4>
+<ul class="change-list {{ css }}">
+    {% for text in texts %}
+    <li>{{ text }}</li>
+    {% endfor %}
+</ul>
+{% endfor %}
+{% endmacro %}
+
+{% block content %}
+<div class="reading-column">
+<div style="margin-bottom: 1rem;">
+    <a href="/reports/{{ report.safe_id }}">← Back to the report</a>
+</div>
+
+<div class="card">
+    <h2>What changed in {{ report.series_label }}</h2>
+    <p class="text-secondary">
+        <a href="/reports/{{ report.safe_id }}">{{ report.report_date.strftime('%A %d %B') }}</a>
+        compared with
+        <a href="/reports/{{ previous.safe_id }}">{{ previous.report_date.strftime('%A %d %B') }}</a>
+    </p>
+    <p>
+        {{ changes.counts.added }} new point{{ '' if changes.counts.added == 1 else 's' }}, {{ changes.counts.kept }} continuing, {{ changes.counts.dropped }} no longer mentioned.
+    </p>
+    <p class="text-secondary"><small>
+        Reports are rewritten every day, so points are matched by their key words, not
+        their wording: a point continues when at least half of its key words appear in a
+        point of the earlier report. Treat this as a guide, not a precise diff.
+    </small></p>
+</div>
+
+<div class="card">
+    <h3>New</h3>
+    {% if changes.added %}{{ points(changes.added, 'change-added') }}{% else %}<p>Nothing new.</p>{% endif %}
+</div>
+
+{% if changes.kept %}
+<details class="card">
+    <summary>Continuing ({{ changes.counts.kept }})</summary>
+    {{ points(changes.kept, 'change-kept') }}
+</details>
+{% endif %}
+
+{% if changes.dropped %}
+<details class="card">
+    <summary>No longer mentioned ({{ changes.counts.dropped }})</summary>
+    {{ points(changes.dropped, 'change-dropped') }}
+</details>
+{% endif %}
+
+<div class="series-nav" role="navigation" aria-label="Changes between other days">
+    <a href="/reports/{{ previous.safe_id }}/changes">‹ Changes on {{ previous.report_date.strftime('%a %d %b') }}</a>
+    {% if nearby.next %}
+    <a href="/reports/{{ nearby.next.safe_id }}/changes">Changes on {{ nearby.next.report_date.strftime('%a %d %b') }} ›</a>
+    {% endif %}
+</div>
+</div>
+{% endblock %}

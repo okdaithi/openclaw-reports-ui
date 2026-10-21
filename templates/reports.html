@@ -75,7 +75,7 @@
                 <th>{{ sort_header('date', 'Date') }}</th>
                 <th>{{ sort_header('type', 'Type') }}</th>
                 <th>{{ sort_header('size', 'Size') }}</th>
-                {% if query %}<th>Match</th>{% endif %}
+                {% if query %}<th>{{ sort_header('relevance', 'Matches') }}</th>{% endif %}
             </tr>
         </thead>
         <tbody>
@@ -90,7 +90,7 @@
             {% endif %}
             <tr>
                 <td>
-                    <a href="/reports/{{ report.safe_id }}">{{ report.title or report.filename }}</a>
+                    <a href="/reports/{{ report.safe_id }}{% if query %}?q={{ query | urlencode }}{% endif %}">{{ report.title or report.filename }}</a>
                     {% if report.title %}<br><small class="text-secondary">{{ report.filename }}</small>{% endif %}
                 </td>
                 <td>
@@ -102,17 +102,16 @@
                 <td class="nowrap"><span class="badge badge-info">{{ report.type }}</span></td>
                 <td class="nowrap">{{ (report.size / 1024) | round(1) }} KB</td>
                 {% if query %}
-                <td>
-                    {% if report.match_type == 'filename' %}
-                        <span class="badge badge-success">Filename</span>
-                    {% elif report.match_type == 'path' %}
-                        <span class="badge badge-info">Path</span>
-                    {% elif report.match_type == 'content' %}
-                        <span class="badge badge-warning">Content</span>
-                        {% if report.snippet %}
-                        <br><small class="text-secondary">{{ report.snippet }}</small>
-                        {% endif %}
-                    {% endif %}
+                <td class="match-cell">
+                    <span class="nowrap">
+                    {% if report.hits %}{{ report.hits }} match{{ '' if report.hits == 1 else 'es' }}{% endif %}
+                    {% if report.match_type == 'title' %}<span class="badge badge-success">Title</span>
+                    {% elif report.match_type == 'filename' %}<span class="badge badge-success">Filename</span>
+                    {% elif report.match_type == 'path' %}<span class="badge badge-info">Folder</span>{% endif %}
+                    </span>
+                    {% for parts in report.snippets %}
+                    <small class="snippet">{% for text, is_match in parts %}{% if is_match %}<mark>{{ text }}</mark>{% else %}{{ text }}{% endif %}{% endfor %}</small>
+                    {% endfor %}
                 </td>
                 {% endif %}
             </tr>

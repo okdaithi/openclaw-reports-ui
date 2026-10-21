@@ -3,9 +3,14 @@
 OpenClaw Reports UI - Local Web Interface
 Lightweight Flask app for browsing reports and querying intelligence database
 """
+import csv
+import io
 import os
+import sqlite3
 from datetime import date, timedelta
-from flask import Flask, render_template, request, jsonify, abort, redirect, url_for
+from flask import Flask, Response, render_template, request, jsonify, abort, redirect, url_for
+from modules import charts
+from modules.changes import compare
 from modules.report_indexer import ReportIndexer
 from modules.markdown_renderer import MarkdownRenderer
 from modules.db_browser import DatabaseBrowser
@@ -17,6 +22,24 @@ app.config['TEMPLATES_AUTO_RELOAD'] = True
 
 MAX_PER_PAGE = 500
 REPORTS_PER_PAGE = 50
+MAX_QUERY_ROWS = 1000      # rows shown on the Query page
+MAX_EXPORT_ROWS = 100_000  # rows in a query's CSV download
+CONTENTS_MIN_HEADINGS = 3  # fewer headings than this: no contents sidebar
+RISK_RANGES = {'30': 30, '90': 90, 'all': None}
+
+# Ready-made queries for the Query page: the four views, then a few joins
+EXAMPLE_QUERIES = [
+    ('Country risk trend', 'SELECT * FROM v_country_risk_trend LIMIT 100'),
+    ('Signals in the last 7 days, by category', 'SELECT * FROM v_signal_heatmap_7d'),
+    ('Top entities, last 30 days', 'SELECT * FROM v_top_entities_30d'),
+    ('Entities seen together', 'SELECT * FROM v_entity_cooccurrence ORDER BY cooccurrence_count DESC LIMIT 50'),
+    ('Highest-impact signals', 'SELECT s.impact_score, s.category, s.title, r.country, r.report_date\n'
+     'FROM signals s JOIN reports r ON r.id = s.report_id\nORDER BY s.impact_score DESC LIMIT 25'),
+    ('Most-cited source domains', 'SELECT domain, COUNT(*) AS citations FROM sources\n'
+     'GROUP BY domain ORDER BY citations DESC LIMIT 25'),
+    ('Reports per country', "SELECT country, COUNT(*) AS reports, MAX(report_date) AS latest\n"
+     "FROM reports WHERE report_type = 'country' GROUP BY country ORDER BY reports DESC"),
+]
 
 # The series shown first on the home page, in this order
 BRIEF_SERIES = 'daily-brief'
@@ -29,6 +52,7 @@ REPORT_SORTS = {
     'series': lambda r: ((r['series_label'] or '~').lower(), r['report_date'] or date.min),
     'type': lambda r: (r['type'], r['modified']),
     'size': lambda r: r['size'],
+    'relevance': lambda r: (r.get('score', 0), r['modified']),
 }
 
 # Initialize modules
@@ -97,10 +121,12 @@ def reports():
     report_type = request.args.get('type', '')
     series = request.args.get('series', '')
     show_all = request.args.get('all') == '1'
-    sort = request.args.get('sort', 'date')
-    if sort not in REPORT_SORTS:
+    # A search lists the most matches first unless another order is chosen
+    sort = request.args.get('sort') or ('relevance' if query else 'date')
+    if sort not in REPORT_SORTS or (sort == 'relevance' and not query):
         sort = 'date'
-    descending = request.args.get('dir', 'desc' if sort in ('date', 'size') else 'asc') == 'desc'
+    descending = request.args.get('dir') or ('desc' if sort in ('date', 'size', 'relevance') else 'asc')
+    descending = descending == 'desc'
 
     # Get reports
     if query:
@@ -177,7 +203,7 @@ def view_report(safe_id):
     
     # Read and render content
     content = indexer.read_content(report['path'])
-    html_content = renderer.render(content, strip_title=True)
+    html_content, contents = renderer.render_with_contents(content, strip_title=True)
     title = renderer.extract_title(content)
     if title == 'Untitled Report' and report['title']:
         title = report['title']
@@ -186,7 +212,31 @@ def view_report(safe_id):
                           report=report,
                           title=title,
                           content=html_content,
+                          contents=contents if len(contents) >= CONTENTS_MIN_HEADINGS else [],
+                          highlight=request.args.get('q', '').strip(),
                           nearby=indexer.neighbours(report))
+
+
+@app.route('/reports/<safe_id>/changes')
+def report_changes(safe_id):
+    """What is new in a report since the previous report of its series"""
+    indexer.scan_reports()
+    report = indexer.get_report(safe_id)
+    if not report:
+        moved = indexer.find_moved(safe_id)
+        if moved:
+            return redirect(url_for('report_changes', safe_id=moved['safe_id']))
+        abort(404)
+    nearby = indexer.neighbours(report)
+    previous = nearby['previous']
+    if previous is None:
+        return redirect(url_for('view_report', safe_id=safe_id))
+    changes = compare(indexer.read_content(previous['path']), indexer.read_content(report['path']))
+    return render_template('report_changes.html',
+                          report=report,
+                          previous=previous,
+                          nearby=nearby,
+                          changes=changes)
 
 
 @app.route('/api/reports/refresh')
@@ -216,36 +266,59 @@ def database():
                           db_stats=db_stats)
 
 
+def table_request(table_info):
+    """Filters and sort order for a table, from the query string"""
+    columns = [c['name'] for c in table_info['columns']]
+    filters = {}
+    for key in request.args:
+        if key.startswith('filter_'):
+            col_name = key[len('filter_'):]
+            value = request.args[key].strip()
+            if col_name in columns and value:
+                filters[col_name] = value
+    sort = request.args.get('sort', '')
+    if sort not in columns:
+        sort = 'id' if 'id' in columns else ''
+    descending = request.args.get('dir', 'desc') != 'asc'
+    return filters, sort, descending
+
+
 @app.route('/database/<table_name>')
 def view_table(table_name):
-    """View table contents with pagination"""
+    """View table contents with pagination, column filters and sorting"""
     # Get pagination parameters
     page = max(1, request.args.get('page', 1, type=int))
     per_page = min(max(1, request.args.get('per_page', 50, type=int)), MAX_PER_PAGE)
     offset = (page - 1) * per_page
-    
-    # Get filter parameters
-    filters = {}
-    for key in request.args:
-        if key.startswith('filter_'):
-            col_name = key.replace('filter_', '')
-            filters[col_name] = request.args[key]
-    
+
     # Get table info
     table_info = db_browser.get_table_info(table_name)
-    
+    if table_info.get('error') == 'Unknown table':
+        abort(404)
+    filters, sort, descending = table_request(table_info)
+
     # Query data
     rows, total = db_browser.query_table(
         table_name,
         limit=per_page,
         offset=offset,
-        order_by='id' if any(c['name'] == 'id' for c in table_info['columns']) else None,
-        filters=filters if filters else None
+        order_by=sort or None,
+        filters=filters or None,
+        descending=descending,
     )
-    
+
     # Calculate pagination
-    total_pages = (total + per_page - 1) // per_page
-    
+    total_pages = max(1, (total + per_page - 1) // per_page)
+
+    params = {f'filter_{col}': value for col, value in filters.items()}
+    params.update(per_page=per_page, sort=sort, dir='desc' if descending else 'asc')
+
+    def link(**changes):
+        """This table's URL with some parameters changed, leaving out empty ones"""
+        merged = {**params, **changes}
+        return url_for('view_table', table_name=table_name,
+                       **{k: v for k, v in merged.items() if v not in ('', None)})
+
     return render_template('table_view.html',
                           table_name=table_name,
                           table_info=table_info,
@@ -254,7 +327,45 @@ def view_table(table_name):
                           page=page,
                           per_page=per_page,
                           total_pages=total_pages,
-                          filters=filters)
+                          filters=filters,
+                          sort=sort,
+                          descending=descending,
+                          link=link,
+                          csv_link=url_for('export_table', table_name=table_name,
+                                           **{k: v for k, v in params.items() if k != 'per_page' and v}))
+
+
+@app.route('/database/<table_name>/csv')
+def export_table(table_name):
+    """The whole table (with the page's filters and order) as a CSV file"""
+    table_info = db_browser.get_table_info(table_name)
+    if table_info.get('error') == 'Unknown table':
+        abort(404)
+    filters, sort, descending = table_request(table_info)
+    rows, _ = db_browser.query_table(table_name, limit=None, order_by=sort or None,
+                                     filters=filters or None, descending=descending)
+    columns = [c['name'] for c in table_info['columns']]
+    return csv_response(columns, rows, f'{table_name}.csv')
+
+
+def csv_response(columns, rows, filename):
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow(['' if row.get(col) is None else row.get(col) for col in columns])
+    return Response(out.getvalue(), mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+
+
+def schema_overview():
+    """Tables and views with their columns, for the Query page's sidebar"""
+    found = []
+    for name in db_browser.get_tables():
+        info = db_browser.get_table_info(name)
+        found.append({'name': name, 'is_view': info.get('is_view', False),
+                      'columns': [(c['name'], c['type']) for c in info['columns']]})
+    return found
 
 
 @app.route('/database/query', methods=['GET', 'POST'])
@@ -263,13 +374,54 @@ def query_database():
     query = request.form.get('query', '') if request.method == 'POST' else request.args.get('query', '')
     results = []
     error = None
-    
+    truncated = False
+
     if query:
-        results, error = db_browser.execute_select(query)
-    
+        results, error = db_browser.execute_select(query, max_rows=MAX_QUERY_ROWS)
+        truncated = len(results) > MAX_QUERY_ROWS
+        results = results[:MAX_QUERY_ROWS]
+
     return render_template('query.html',
                           query=query,
                           results=results,
+                          error=error,
+                          truncated=truncated,
+                          max_rows=MAX_QUERY_ROWS,
+                          examples=EXAMPLE_QUERIES,
+                          schema=schema_overview())
+
+
+@app.route('/database/query/csv')
+def export_query():
+    """A query's results as a CSV file"""
+    query = request.args.get('query', '')
+    results, error = db_browser.execute_select(query, max_rows=MAX_EXPORT_ROWS)
+    if error or not query:
+        abort(400, error or 'No query')
+    columns = list(results[0].keys()) if results else []
+    return csv_response(columns, results[:MAX_EXPORT_ROWS], 'query.csv')
+
+
+@app.route('/charts')
+def charts_page():
+    """Country risk over time and the last week of signals"""
+    risk_range = request.args.get('range', '90')
+    if risk_range not in RISK_RANGES:
+        risk_range = '90'
+    end = charts.as_date(request.args.get('end', '')) or date.today()
+    try:
+        risk = charts.risk_trends(db_browser._connect, RISK_RANGES[risk_range])
+        signals = charts.signal_grid(db_browser._connect, end=end)
+        heatmap = charts.heatmap_view(db_browser._connect)
+        error = None
+    except sqlite3.Error as exc:
+        risk = signals = heatmap = None
+        error = str(exc)
+    return render_template('charts.html',
+                          risk=risk,
+                          risk_range=risk_range,
+                          signals=signals,
+                          heatmap=heatmap,
                           error=error)
 
 
