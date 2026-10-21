@@ -20,8 +20,8 @@
     </div>
     {% if risk.unscored %}
     <p class="chart-note" style="margin-top: 0.75rem;">
-        {{ risk.unscored }} of {{ risk.scored + risk.unscored }} scores in this range are 0, which looks like "not scored"
-        rather than "no risk", so they are left out of the lines.
+        {{ risk.unscored }} of {{ risk.scored + risk.unscored }} reports in this range have no risk score (blank, or the 0
+        that older loads stored for "not scored"), so they are left out of the lines.
         {% if risk.skipped %}{{ risk.skipped }} row{{ '' if risk.skipped == 1 else 's' }} without a usable date {{ 'was' if risk.skipped == 1 else 'were' }} skipped.{% endif %}
     </p>
     {% endif %}

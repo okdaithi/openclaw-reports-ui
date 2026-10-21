@@ -3,9 +3,10 @@
 The pages draw these with plain SVG in the templates (no chart library and no
 CDN, like the rest of the app). The data needs some care, as found on
 2026-10-21:
-- most risk scores are 0 (227 of 315 country rows), which reads as "not
-  scored" rather than "no risk", so zeros are left out of the lines and
-  counted instead;
+- most risk scores were 0 (227 of 315 country rows): the loader stored 0
+  when a report had no score. Loader v1.3 (2026-10-22) stores NULL and its
+  backfill turns the old zeros into NULL; either way the lines leave them out
+  and count them as "not scored";
 - a few report dates are the text 'null' or a full timestamp, so only the
   first 10 characters are used and anything that isn't a date is skipped;
 - the USA appears as both 'US' and 'USA'.
