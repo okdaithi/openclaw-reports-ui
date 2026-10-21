@@ -3,25 +3,31 @@
 {% block title %}SQL Query - Database Explorer{% endblock %}
 
 {% block content %}
-<div style="margin-bottom: 1rem;">
-    <a href="/database">← Back to Database</a>
+<div class="query-layout">
+<div>
+<div class="card">
+    <h2>SQL Query</h2>
+    <p class="text-secondary">One <code>SELECT</code> statement; the database is opened read-only.
+        The page shows the first {{ max_rows }} rows; the CSV download has all of them.</p>
+
+    <h3>Examples</h3>
+    <ul class="examples">
+        {% for label, sql in examples %}
+        <li><a href="{{ url_for('query_database', query=sql) }}" title="{{ sql }}">{{ label }}</a></li>
+        {% endfor %}
+    </ul>
 </div>
 
 <div class="card">
-    <h2>SQL Query Interface</h2>
-    <div class="alert alert-info">
-        <strong>Security:</strong> Only SELECT queries are permitted. No write operations allowed.
-    </div>
-</div>
-
-<div class="card">
-    <h3>Execute Query</h3>
     <form method="post">
         <div class="form-group">
-            <label>SQL Query</label>
-            <textarea name="query" placeholder="SELECT * FROM reports LIMIT 10;">{{ query or '' }}</textarea>
+            <label for="query">SQL</label>
+            <textarea name="query" id="query" placeholder="SELECT * FROM reports LIMIT 10;" spellcheck="false">{{ query or '' }}</textarea>
         </div>
-        <button type="submit">Execute Query</button>
+        <div class="table-actions">
+            <button type="submit">Run query</button>
+            <small class="text-secondary">Ctrl+Enter runs it too.</small>
+        </div>
     </form>
 </div>
 
@@ -33,12 +39,17 @@
 </div>
 {% endif %}
 
-{% if results %}
+{% if query and not error %}
 <div class="card">
-    <h3>Query Results ({{ results | length }} rows)</h3>
-    
-    {% if results | length > 0 %}
-    <div style="overflow-x: auto;">
+    <h3>Results: {{ results | length }}{% if truncated %}+{% endif %} row{{ '' if results | length == 1 else 's' }}</h3>
+    {% if truncated %}
+    <p class="alert alert-info">Only the first {{ max_rows }} rows are shown. Download the CSV for all of them, or add a <code>LIMIT</code>.</p>
+    {% endif %}
+    {% if results %}
+    <div class="table-actions" style="margin-bottom: 0.5rem;">
+        <a class="btn btn-small" href="{{ url_for('export_query', query=query) }}" download>Download CSV</a>
+    </div>
+    <div class="table-scroll">
         <table>
             <thead>
                 <tr>
@@ -55,7 +66,7 @@
                         {% if value is none %}
                         <em class="text-muted">NULL</em>
                         {% elif value is string and value | length > 200 %}
-                        {{ value[:200] }}...
+                        <span title="{{ value }}">{{ value[:200] }}…</span>
                         {% else %}
                         {{ value }}
                         {% endif %}
@@ -67,52 +78,52 @@
         </table>
     </div>
     {% else %}
-    <p>Query executed successfully. No results returned.</p>
+    <p>No rows.</p>
     {% endif %}
 </div>
 {% endif %}
-
-<div class="card">
-    <h3>Example Queries</h3>
-    <div style="display: grid; gap: 1rem;">
-        <div>
-            <strong>List all reports:</strong>
-            <pre>SELECT report_date, report_type, country, risk_score 
-FROM reports 
-ORDER BY report_date DESC 
-LIMIT 20;</pre>
-        </div>
-        
-        <div>
-            <strong>High-risk reports:</strong>
-            <pre>SELECT report_date, country, risk_score, volatility_score 
-FROM reports 
-WHERE risk_score > 70 
-ORDER BY risk_score DESC;</pre>
-        </div>
-        
-        <div>
-            <strong>Entity mentions:</strong>
-            <pre>SELECT e.name, e.type, COUNT(*) as mention_count 
-FROM entities e 
-JOIN entity_mentions em ON e.id = em.entity_id 
-GROUP BY e.name, e.type 
-ORDER BY mention_count DESC 
-LIMIT 20;</pre>
-        </div>
-        
-        <div>
-            <strong>Country risk trend (view):</strong>
-            <pre>SELECT * FROM v_country_risk_trend ORDER BY avg_risk DESC;</pre>
-        </div>
-        
-        <div>
-            <strong>Recent signals:</strong>
-            <pre>SELECT category, subcategory, COUNT(*) as count 
-FROM signals 
-GROUP BY category, subcategory 
-ORDER BY count DESC;</pre>
-        </div>
-    </div>
 </div>
+
+<aside class="card schema-list" aria-label="Tables and views">
+    <h3>Schema</h3>
+    <p class="text-secondary"><small>Click a name to add it to the query.</small></p>
+    {% for item in schema %}
+    <details>
+        <summary><code>{{ item.name }}</code>{% if item.is_view %} <small class="text-secondary">view</small>{% endif %}</summary>
+        <ul>
+            {% for name, type in item.columns %}
+            <li><a href="#" class="insert" data-text="{{ name }}"><code>{{ name }}</code></a> <small class="text-secondary">{{ type }}</small></li>
+            {% endfor %}
+        </ul>
+        <a href="#" class="insert" data-text="{{ item.name }}"><small>Insert table name</small></a>
+        &middot; <a href="{{ url_for('view_table', table_name=item.name) }}"><small>Browse</small></a>
+    </details>
+    {% endfor %}
+</aside>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function() {
+        var box = document.getElementById('query');
+        box.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                box.form.submit();
+            }
+        });
+        // Insert a table or column name at the cursor
+        document.querySelectorAll('a.insert').forEach(function(link) {
+            link.addEventListener('click', function(event) {
+                event.preventDefault();
+                var text = link.dataset.text;
+                var start = box.selectionStart, end = box.selectionEnd;
+                box.value = box.value.slice(0, start) + text + box.value.slice(end);
+                box.focus();
+                box.selectionStart = box.selectionEnd = start + text.length;
+            });
+        });
+    })();
+</script>
 {% endblock %}

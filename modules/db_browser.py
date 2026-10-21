@@ -105,9 +105,10 @@ class DatabaseBrowser:
             print(f"Error getting table info for {table_name}: {e}")
             return {'name': table_name, 'columns': [], 'row_count': 0, 'error': str(e)}
 
-    def query_table(self, table_name: str, limit: int = 100, offset: int = 0,
-                    order_by: Optional[str] = None, filters: Optional[Dict] = None) -> Tuple[List[Dict], int]:
-        """Query table with pagination and optional filtering"""
+    def query_table(self, table_name: str, limit: Optional[int] = 100, offset: int = 0,
+                    order_by: Optional[str] = None, filters: Optional[Dict] = None,
+                    descending: bool = True) -> Tuple[List[Dict], int]:
+        """Query table with pagination and optional filtering (limit=None: all rows)"""
         if not self._validate_table_name(table_name):
             return [], 0
 
@@ -140,11 +141,13 @@ class DatabaseBrowser:
 
             # Add ordering (column name validated against the real schema)
             if order_by and order_by in valid_columns:
-                query += f" ORDER BY {_quote_identifier(order_by)} DESC"
+                direction = "DESC" if descending else "ASC"
+                query += f" ORDER BY {_quote_identifier(order_by)} {direction}"
 
             # Add pagination
-            query += " LIMIT ? OFFSET ?"
-            params.extend([limit, offset])
+            if limit is not None:
+                query += " LIMIT ? OFFSET ?"
+                params.extend([limit, offset])
 
             # Execute query
             cursor.execute(query, params)
@@ -160,8 +163,12 @@ class DatabaseBrowser:
             print(f"Error querying table {table_name}: {e}")
             return [], 0
 
-    def execute_select(self, query: str) -> Tuple[List[Dict], Optional[str]]:
-        """Execute a SELECT query (read-only, validated)"""
+    def execute_select(self, query: str, max_rows: Optional[int] = None) -> Tuple[List[Dict], Optional[str]]:
+        """Execute a SELECT query (read-only, validated).
+
+        With max_rows, at most max_rows + 1 rows are fetched, so a caller can
+        tell the result was cut short without reading all of it.
+        """
         # Security: ensure it's a single SELECT statement
         query_stripped = query.strip().rstrip(';')
         if ';' in query_stripped:
@@ -184,9 +191,8 @@ class DatabaseBrowser:
             cursor.execute(query_stripped)
 
             # Convert to dicts
-            rows = []
-            for row in cursor.fetchall():
-                rows.append(dict(row))
+            fetched = cursor.fetchall() if max_rows is None else cursor.fetchmany(max_rows + 1)
+            rows = [dict(row) for row in fetched]
 
             conn.close()
             return rows, None
