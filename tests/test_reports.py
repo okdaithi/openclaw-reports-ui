@@ -147,7 +147,7 @@ def test_search_still_finds_text_inside_reports(client, reports_dir):
     write_report(reports_dir, f'mika-usa-{day(0)}.md', 'USA', body='Tariffs.')
     page = client.get('/reports?q=rare+earth').get_data(as_text=True)
     assert titles(page) == ['China']
-    assert 'Rare earth' in page
+    assert '<mark>Rare</mark> <mark>earth</mark>' in page
 
 
 # --- a series, report by report --------------------------------------------------------

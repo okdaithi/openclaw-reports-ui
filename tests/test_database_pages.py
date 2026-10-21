@@ -153,3 +153,21 @@ def test_the_charts_page_reports_a_database_it_cannot_read(client, tmp_path, mon
     monkeypatch.setattr(app_module.db_browser, 'db_path', str(tmp_path / 'missing.db'))
     text = client.get('/charts').get_data(as_text=True)
     assert 'The database could not be read' in text
+
+
+# --- health --------------------------------------------------------------------------
+
+
+def test_healthz_is_ok_with_reports_and_a_readable_database(client, db, reports_dir):
+    (reports_dir / f'mika-china-{day(2)}.md').write_text('# China\n', encoding='utf-8')
+    response = client.get('/healthz')
+    assert response.status_code == 200
+    body = response.get_json()
+    assert (body['status'], body['db'], body['reports'], body['latest_report_days']) == ('ok', 'ok', 1, 2)
+
+
+def test_healthz_fails_without_a_database(client, reports_dir, tmp_path, monkeypatch):
+    (reports_dir / f'mika-china-{day(0)}.md').write_text('# China\n', encoding='utf-8')
+    monkeypatch.setattr(app_module.db_browser, 'db_path', str(tmp_path / 'missing.db'))
+    response = client.get('/healthz')
+    assert response.status_code == 503 and response.get_json()['db'].startswith('error')

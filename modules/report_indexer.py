@@ -3,6 +3,9 @@ Report Indexer - Scans and indexes markdown reports from OpenClaw
 """
 import os
 import re
+import sqlite3
+import threading
+import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -15,6 +18,7 @@ DEFAULT_REPORTS_DIR = os.environ.get("OPENCLAW_REPORTS_DIR", "/home/dg/openclaw-
 _DATED_NAME = re.compile(r'^(?P<series>.+?)[-_](?P<date>\d{4}-\d{2}-\d{2})(?P<rest>.*)\.md$')
 _TITLE_BYTES = 4096
 SNIPPETS = 3
+SCAN_INTERVAL = 30  # seconds between re-scans of the reports folder
 _SNIPPET_CONTEXT = 70
 _HEADING = re.compile(r'^#{1,6}\s+(.+?)\s*#*\s*$')
 
@@ -69,13 +73,40 @@ class ReportIndexer:
         self._index = []
         self._content_cache = {}
         self._title_cache = {}
-    
+        self._scanned_at = 0.0
+        self._scanned_dir = None
+        self._lock = threading.Lock()
+        # Full-text index of every report, kept in memory and updated file by
+        # file as reports change (0.3 s to build for 676 files in Oct 2026)
+        self._fts = sqlite3.connect(':memory:', check_same_thread=False)
+        self._fts.execute(
+            "CREATE VIRTUAL TABLE docs USING fts5("
+            "path UNINDEXED, name, title, body, tokenize='porter unicode61')"
+        )
+        self._fts_mtimes = {}
+
+    def refresh(self) -> List[Dict]:
+        """The index, re-scanned when it is more than SCAN_INTERVAL seconds old"""
+        if (time.monotonic() - self._scanned_at >= SCAN_INTERVAL
+                or self._scanned_dir != self.reports_dir):
+            self.scan_reports()
+        return self._index
+
     def scan_reports(self) -> List[Dict]:
-        """Recursively scan for markdown reports"""
-        self._index = []
-        
+        """Recursively scan for markdown reports (always; see refresh())"""
+        with self._lock:
+            found = self._scan()
+            self._update_fts(found)
+            # Swap the new list in whole, so a request never sees half a scan
+            self._index = found
+            self._scanned_at = time.monotonic()
+            self._scanned_dir = self.reports_dir
+        return self._index
+
+    def _scan(self) -> List[Dict]:
+        found = []
         if not self.reports_dir.exists():
-            return self._index
+            return found
         
         for md_file in self.reports_dir.rglob("*.md"):
             try:
@@ -93,7 +124,7 @@ class ReportIndexer:
                 elif named['kind'] == 'test':
                     report_type = 'Test run'
                 
-                self._index.append({
+                found.append({
                     **named,
                     'series_label': series_label(named['series']) if named['series'] else None,
                     'title': self._read_title(md_file, stat.st_mtime),
@@ -103,6 +134,7 @@ class ReportIndexer:
                     'folder': str(relative_path.parent),
                     'size': stat.st_size,
                     'modified': datetime.fromtimestamp(stat.st_mtime),
+                    'mtime': stat.st_mtime,
                     'type': report_type,
                     'safe_id': self._safe_filename(str(relative_path))
                 })
@@ -111,8 +143,27 @@ class ReportIndexer:
                 continue
         
         # Sort by modification time (newest first)
-        self._index.sort(key=lambda x: x['modified'], reverse=True)
-        return self._index
+        found.sort(key=lambda x: x['modified'], reverse=True)
+        return found
+
+    def _update_fts(self, found: List[Dict]) -> None:
+        """Add new and changed reports to the full-text index, drop removed ones"""
+        current = {r['path']: r for r in found}
+        with self._fts:
+            for path in set(self._fts_mtimes) - set(current):
+                self._fts.execute('DELETE FROM docs WHERE path = ?', (path,))
+                del self._fts_mtimes[path]
+            for path, report in current.items():
+                if self._fts_mtimes.get(path) == report['mtime']:
+                    continue
+                if path in self._fts_mtimes:
+                    self._fts.execute('DELETE FROM docs WHERE path = ?', (path,))
+                self._fts.execute(
+                    'INSERT INTO docs (path, name, title, body) VALUES (?, ?, ?, ?)',
+                    (path, f"{report['filename']} {report['folder']}", report['title'],
+                     self.read_content(path)),
+                )
+                self._fts_mtimes[path] = report['mtime']
 
     def _read_title(self, path: Path, mtime: float) -> str:
         """First heading of a report (most use H1, executive summaries H2),
@@ -216,41 +267,53 @@ class ReportIndexer:
             return f"Error reading file: {e}"
     
     def search(self, query: str) -> List[Dict]:
-        """Reports containing `query` (case-insensitive), most matches first.
+        """Reports containing every word or "quoted phrase" of `query`, best first.
 
-        Each hit carries `hits` (times the text appears), `match_type`
-        (title, filename, path or content) and up to SNIPPETS `snippets`,
-        each a list of (text, is_match) parts so a page can mark the matches
-        without trusting the report's text as HTML.
+        Uses the full-text index (words match their other forms: "tariff"
+        finds "tariffs"), ranked by BM25 with the title counting 5 times and
+        the file name and folder 3 times as much as the text. Each hit carries
+        `hits` (times the terms appear), `match_type` (title, filename or
+        content), `score` and up to SNIPPETS `snippets`, each a list of
+        (text, is_match) parts so a page can mark the matches without trusting
+        the report's text as HTML.
         """
         if not query:
             return self._index
 
-        needle = re.compile(re.escape(query), re.IGNORECASE)
+        terms = search_terms(query)
+        if not terms:
+            return []
+        fts_query = ' '.join('"' + term.replace('"', '') + '"' for term in terms)
+        try:
+            with self._lock:
+                ranked = self._fts.execute(
+                    'SELECT path, bm25(docs, 0, 3, 5, 1) FROM docs WHERE docs MATCH ?',
+                    (fts_query,),
+                ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        rank = {path: -score for path, score in ranked}
+        needle = term_pattern(terms)
+
         results = []
         for report in self._index:
+            if report['path'] not in rank:
+                continue
             content = self.read_content(report['path'])
             spans = [m.span() for m in needle.finditer(content)]
-            in_title = bool(report['title'] and needle.search(report['title']))
-            in_name = bool(needle.search(report['filename']))
-            in_path = bool(needle.search(report['folder']))
-            if not (spans or in_name or in_path):
-                continue
-            if in_title:
+            if report['title'] and needle.search(report['title']):
                 match_type = 'title'
-            elif in_name:
+            elif needle.search(report['filename']):
                 match_type = 'filename'
-            elif in_path and not spans:
-                match_type = 'path'
-            else:
+            elif spans:
                 match_type = 'content'
-            # A match in the title or name counts as much as several in the text
-            score = len(spans) + (5 if in_title else 0) + (3 if in_name else 0)
+            else:
+                match_type = 'path'
             results.append({
                 **report,
                 'match_type': match_type,
                 'hits': len(spans),
-                'score': score,
+                'score': rank[report['path']],
                 'snippets': _snippets(content, spans),
             })
         results.sort(key=lambda r: (r['score'], r['modified']), reverse=True)
@@ -273,6 +336,29 @@ class ReportIndexer:
             'oldest': min(r['modified'] for r in self._index),
             'newest': max(r['modified'] for r in self._index)
         }
+
+
+def search_terms(query: str) -> List[str]:
+    """Words and "quoted phrases" of a search, in order"""
+    terms = []
+    for phrase, word in re.findall(r'"([^"]+)"|(\S+)', query):
+        term = (phrase or word).strip()
+        # Punctuation alone can't be searched for
+        if re.search(r'\w', term):
+            terms.append(term)
+    return terms
+
+
+def term_pattern(terms: List[str]) -> 're.Pattern':
+    """A regex marking each term in text; a single word also matches its
+    longer forms ("tariff" marks "tariffs"), as the full-text index does"""
+    parts = []
+    for term in sorted(terms, key=len, reverse=True):
+        escaped = r'\s+'.join(re.escape(word) for word in term.split())
+        if ' ' not in term:
+            escaped += r'\w*'
+        parts.append(r'\b' + escaped)
+    return re.compile('|'.join(parts), re.IGNORECASE)
 
 
 def _snippets(content: str, spans: List[tuple]) -> List[List[tuple]]:

@@ -13,10 +13,11 @@ so other people and agents can reuse and improve it.
   other reports dated today.
 - **Report browser** — recursively scans a directory of `.md` reports, classifies them
   by type from their path/filename, and lists them newest-first.
-- **Full-text search** — matches report titles, file names, folders and text;
-  results are ranked by how often the term appears (a title or file-name match
-  counts extra), with up to three passages per report and the term marked.
-  Opening a result marks the term in the report too.
+- **Full-text search** — an in-memory SQLite FTS5 index of every report. Every
+  word must appear (in any order; "tariff" also finds "tariffs"); put a phrase
+  in quotes to match it as written. Results are ranked by BM25, with title
+  and file-name matches counting extra, and show up to three passages per
+  report with the terms marked. Opening a result marks the terms in the report.
 - **Rendered report view** — Markdown → HTML with syntax highlighting, tables,
   fenced code and `nl2br`/`sane_lists` handling; a contents sidebar for reports
   with three or more headings; previous/next report of the same series.
@@ -230,6 +231,18 @@ original intelligence database it was built against contains:
 - **Views:** `v_country_risk_trend`, `v_signal_heatmap_7d`, `v_top_entities_30d`,
   `v_entity_cooccurrence`
 
+## Health check
+
+`GET /healthz` returns JSON (`status`, `reports`, `latest_report`,
+`latest_report_days`, `db`, `db_reports`) with 200 when reports are indexed
+and the database can be read, else 503.
+
+## Production server (optional)
+
+`deploy/gunicorn.conf` is a systemd drop-in that runs the app under gunicorn
+(one worker, eight threads) instead of Flask's development server; its comment
+has the install and removal commands.
+
 ## Deployment (systemd user unit)
 
 The unit sets every path and bind option explicitly. This matters: if `HOST` is
@@ -267,13 +280,13 @@ systemctl --user enable --now openclaw-reports-ui.service
 
 ## Known limitations / good first issues
 
-- **Full re-scan per request.** `scan_reports()` walks the whole tree on every
-  page load; a cached index with mtime invalidation would be cheaper.
-- **Content search is O(n) on file reads.** An SQLite FTS5 index would be a real
-  improvement; the in-memory cache is unbounded.
-- **Index lives in memory** and is rebuilt on each request rather than persisted.
-- **No CI or linter config** yet. Tests: `pip install pytest` in the venv,
-  then `python -m pytest tests`.
+- **The index lives in memory.** The reports folder is re-scanned at most every
+  30 seconds (`SCAN_INTERVAL`); only new or changed files are re-read into the
+  full-text index (the whole index builds in about 0.3 s for 676 files).
+  **Refresh Index** forces a re-scan.
+- **CI** (GitHub Actions) runs pyflakes and the tests on every push and pull
+  request. Locally: `pip install pytest pyflakes` in the venv, then
+  `python -m pytest tests`.
 - **No authentication** — every route is anonymous. This is a deliberate
   consequence of the original loopback-or-tailnet deployment; if you bind to a
   shared network, everything is readable by anyone who can reach the port.

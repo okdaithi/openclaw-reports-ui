@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from flask import Flask, Response, render_template, request, jsonify, abort, redirect, url_for
 from modules import charts
 from modules.changes import compare
-from modules.report_indexer import ReportIndexer
+from modules.report_indexer import ReportIndexer, search_terms
 from modules.markdown_renderer import MarkdownRenderer
 from modules.db_browser import DatabaseBrowser
 
@@ -69,7 +69,7 @@ print(f"Found {len(indexer._index)} reports")
 @app.route('/')
 def index():
     """Home page: today's reports first, then the overview"""
-    indexer.scan_reports()
+    indexer.refresh()
     report_stats = indexer.get_stats()
     db_stats = db_browser.get_db_stats()
     today = date.today()
@@ -116,7 +116,7 @@ def freshness(report, today):
 @app.route('/reports')
 def reports():
     """List reports, newest first, with search, filters, sorting and pages"""
-    indexer.scan_reports()
+    indexer.refresh()
     query = request.args.get('q', '').strip()
     report_type = request.args.get('type', '')
     series = request.args.get('series', '')
@@ -214,13 +214,14 @@ def view_report(safe_id):
                           content=html_content,
                           contents=contents if len(contents) >= CONTENTS_MIN_HEADINGS else [],
                           highlight=request.args.get('q', '').strip(),
+                          highlight_terms=search_terms(request.args.get('q', '')),
                           nearby=indexer.neighbours(report))
 
 
 @app.route('/reports/<safe_id>/changes')
 def report_changes(safe_id):
     """What is new in a report since the previous report of its series"""
-    indexer.scan_reports()
+    indexer.refresh()
     report = indexer.get_report(safe_id)
     if not report:
         moved = indexer.find_moved(safe_id)
@@ -237,6 +238,32 @@ def report_changes(safe_id):
                           previous=previous,
                           nearby=nearby,
                           changes=changes)
+
+
+@app.route('/healthz')
+def healthz():
+    """For monitoring: 200 when reports are indexed and the database reads,
+    else 503. `latest_report_days` says how old the newest dated report is."""
+    reports = indexer.refresh()
+    dated = [r['report_date'] for r in reports if r['kind'] == 'report' and r['report_date']]
+    latest = max(dated) if dated else None
+    body = {
+        'reports': len(reports),
+        'latest_report': latest.isoformat() if latest else None,
+        'latest_report_days': (date.today() - latest).days if latest else None,
+    }
+    try:
+        conn = db_browser._connect()
+        try:
+            body['db_reports'] = conn.execute('SELECT COUNT(*) FROM reports').fetchone()[0]
+        finally:
+            conn.close()
+        body['db'] = 'ok'
+    except sqlite3.Error as exc:
+        body['db'] = f'error: {exc}'
+    healthy = bool(reports) and body['db'] == 'ok'
+    body['status'] = 'ok' if healthy else 'fail'
+    return jsonify(body), 200 if healthy else 503
 
 
 @app.route('/api/reports/refresh')

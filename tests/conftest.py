@@ -20,6 +20,12 @@ with sqlite3.connect(_WORK / 'intelligence.db') as _db:
 import app as app_module  # noqa: E402  (needs the environment above)
 
 
+@pytest.fixture(autouse=True)
+def rescan_every_request(monkeypatch):
+    """Tests write files between requests; don't wait for the scan interval"""
+    monkeypatch.setattr('modules.report_indexer.SCAN_INTERVAL', 0)
+
+
 @pytest.fixture
 def reports_dir(tmp_path, monkeypatch):
     """An empty reports folder the app reads from for one test"""

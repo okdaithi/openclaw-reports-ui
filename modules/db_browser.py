@@ -202,9 +202,6 @@ class DatabaseBrowser:
     def get_db_stats(self) -> Dict:
         """Get database statistics"""
         try:
-            conn = self._connect()
-            cursor = conn.cursor()
-
             # Get database file size
             db_size = Path(self.db_path).stat().st_size
 
@@ -218,8 +215,6 @@ class DatabaseBrowser:
                     'columns': len(info['columns']),
                     'is_view': info.get('is_view', False)
                 }
-
-            conn.close()
 
             return {
                 'size_mb': round(db_size / 1024 / 1024, 2),
