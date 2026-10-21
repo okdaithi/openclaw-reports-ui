@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import report_link %}
 
 {% block title %}Home - OpenClaw Reports UI{% endblock %}
 
@@ -6,7 +7,7 @@
 <div class="today-lead">
     <div class="today-lead-label">{{ label }}</div>
     {% if report %}
-    <a class="today-lead-title" href="/reports/{{ report.safe_id }}">{{ report.title or report.filename }}</a>
+    <span class="today-lead-title">{{ report_link(report) }}</span>
     <div class="freshness freshness-{{ state }}">
         {% if state == 'today' %}
         Today, updated {{ report.modified.strftime('%H:%M') }}
@@ -35,7 +36,7 @@
     <ul class="today-list">
         {% for report in todays %}
         <li>
-            <a href="/reports/{{ report.safe_id }}">{{ report.series_label }}</a>
+            {{ report_link(report, label=report.series_label) }}
             <small class="text-secondary">{{ report.title }}</small>
         </li>
         {% endfor %}
@@ -43,6 +44,16 @@
     {% else %}
     <p class="text-secondary">None yet.</p>
     {% endif %}
+</div>
+
+<div class="card" id="watch-panel">
+    <h3>Watched searches <small class="text-secondary">(last 7 days; kept in this browser)</small></h3>
+    <form class="watch-form" id="watch-form">
+        <input type="search" id="watch-input" placeholder='Add a search, e.g. Taiwan or "export controls"' aria-label="Search to watch">
+        <button type="submit" class="btn-small">Watch</button>
+    </form>
+    <ul class="watch-list" id="watch-list"></ul>
+    <p class="text-secondary" id="watch-empty"><small>Nothing watched yet. Matching reports from the last 7 days appear here, unread ones marked.</small></p>
 </div>
 
 <div class="stats-grid">
@@ -95,7 +106,7 @@
         <tbody>
             {% for report in latest_reports %}
             <tr>
-                <td><a href="/reports/{{ report.safe_id }}">{{ report.title or report.filename }}</a></td>
+                <td>{{ report_link(report) }}</td>
                 <td><a class="badge badge-info" href="/reports?series={{ report.series | urlencode }}">{{ report.series_label }}</a></td>
                 <td>{{ report.report_date.strftime('%Y-%m-%d') }}</td>
                 <td>{{ report.modified.strftime('%Y-%m-%d %H:%M') }}</td>
@@ -117,4 +128,73 @@
         <a href="/database/query" class="btn btn-secondary">Run SQL Query</a>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function() {
+        var list = document.getElementById('watch-list');
+        var empty = document.getElementById('watch-empty');
+        var terms = [];
+        try { terms = JSON.parse(localStorage.getItem('watchTerms')) || []; } catch (e) {}
+        var save = function() {
+            try { localStorage.setItem('watchTerms', JSON.stringify(terms)); } catch (e) {}
+        };
+        var el = function(tag, text, cls) {
+            var node = document.createElement(tag);
+            if (text) { node.textContent = text; }
+            if (cls) { node.className = cls; }
+            return node;
+        };
+        var render = function() {
+            list.textContent = '';
+            empty.hidden = terms.length > 0;
+            terms.forEach(function(term, index) {
+                var item = el('li');
+                var head = el('div', null, 'watch-head');
+                var link = el('a', term);
+                link.href = '/reports?q=' + encodeURIComponent(term);
+                head.appendChild(link);
+                var status = el('small', 'checking…', 'text-secondary');
+                head.appendChild(status);
+                var remove = el('button', '×', 'remove');
+                remove.type = 'button';
+                remove.setAttribute('aria-label', 'Stop watching ' + term);
+                remove.addEventListener('click', function() { terms.splice(index, 1); save(); render(); });
+                head.appendChild(remove);
+                item.appendChild(head);
+                list.appendChild(item);
+                fetch('/api/search?q=' + encodeURIComponent(term))
+                    .then(function(response) { return response.json(); })
+                    .then(function(data) {
+                        var unread = data.results.filter(function(r) { return window.isUnread(r.key, r.date); }).length;
+                        status.textContent = data.count + ' report' + (data.count === 1 ? '' : 's') +
+                            (unread ? ', ' + unread + ' unread' : '');
+                        var hits = el('ul', null, 'watch-hits');
+                        data.results.slice(0, 3).forEach(function(r) {
+                            var row = el('li');
+                            var a = el('a', r.title);
+                            a.href = r.url;
+                            a.dataset.reportKey = r.key;
+                            a.dataset.reportDate = r.date;
+                            row.appendChild(a);
+                            row.appendChild(el('small', ' ' + r.series + ', ' + r.date, 'text-secondary'));
+                            hits.appendChild(row);
+                        });
+                        item.appendChild(hits);
+                        window.paintUnread(item);
+                    })
+                    .catch(function() { status.textContent = 'could not search'; });
+            });
+        };
+        document.getElementById('watch-form').addEventListener('submit', function(event) {
+            event.preventDefault();
+            var input = document.getElementById('watch-input');
+            var term = input.value.trim();
+            if (term && terms.indexOf(term) < 0) { terms.push(term); save(); render(); }
+            input.value = '';
+        });
+        render();
+    })();
+</script>
 {% endblock %}

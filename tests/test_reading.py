@@ -23,7 +23,7 @@ def age(path, hours: int) -> None:
 
 
 def titles(page: str) -> list[str]:
-    return re.findall(r'<a href="/reports/[^"]+">([^<]+)</a>', page)
+    return re.findall(r'<a href="/reports/[^"]+"[^>]*>([^<]+)</a>', page)
 
 
 # --- search -------------------------------------------------------------------------

@@ -10,7 +10,8 @@ import sqlite3
 from datetime import date, timedelta
 from flask import Flask, Response, render_template, request, jsonify, abort, redirect, url_for
 from modules import charts
-from modules.changes import compare
+from modules import countries
+from modules.changes import compare, points
 from modules.report_indexer import ReportIndexer, search_terms
 from modules.markdown_renderer import MarkdownRenderer
 from modules.db_browser import DatabaseBrowser
@@ -26,6 +27,8 @@ MAX_QUERY_ROWS = 1000      # rows shown on the Query page
 MAX_EXPORT_ROWS = 100_000  # rows in a query's CSV download
 CONTENTS_MIN_HEADINGS = 3  # fewer headings than this: no contents sidebar
 RISK_RANGES = {'30': 30, '90': 90, 'all': None}
+DIGEST_POINTS = 4          # new points shown per report in the digest
+WATCH_DAYS = 7             # how far back /api/search looks by default
 
 # Ready-made queries for the Query page: the four views, then a few joins
 EXAMPLE_QUERIES = [
@@ -59,6 +62,12 @@ REPORT_SORTS = {
 indexer = ReportIndexer()
 renderer = MarkdownRenderer()
 db_browser = DatabaseBrowser()
+
+@app.context_processor
+def shared_names():
+    """Country slugs for links from any page (code -> slug)"""
+    return {'country_slugs': {code: slug for code, (_, slug) in countries.COUNTRIES.items()}}
+
 
 # Scan reports on startup
 print("Scanning reports...")
@@ -450,6 +459,132 @@ def charts_page():
                           signals=signals,
                           heatmap=heatmap,
                           error=error)
+
+
+def lead_points(report, count):
+    """The first `count` points of a report, as (section, text); a section
+    that is only the report's own title (e.g. an H2 title) is left out"""
+    title = (report['title'] or '').casefold()
+    return [('' if section.casefold() == title else section, text)
+            for section, text in points(indexer.read_content(report['path']))[:count]]
+
+
+def new_points(report, count):
+    """Up to `count` points new since the previous report of the series, the
+    number of new points, and that previous report (None for a first report)"""
+    previous = indexer.neighbours(report)['previous']
+    if previous is None:
+        return lead_points(report, count), None, None
+    changes = compare(indexer.read_content(previous['path']), indexer.read_content(report['path']))
+    found = [(section, text) for section, texts in changes['added'] for text in texts]
+    return found[:count], changes['counts']['added'], previous
+
+
+@app.route('/digest')
+def digest():
+    """One day on one page: the brief, the summary and what is new per country"""
+    reports = indexer.refresh()
+    day = charts.as_date(request.args.get('date', '')) or date.today()
+    todays = [r for r in reports if r['report_date'] == day and r['kind'] == 'report']
+    by_series = {r['series']: r for r in todays}
+    brief = by_series.pop(BRIEF_SERIES, None)
+    summary = by_series.pop(SUMMARY_SERIES, None)
+    country_series = {c['series']: c for c in countries.all_countries()}
+    sections = []
+    for series, report in sorted(by_series.items(), key=lambda item: item[1]['series_label']):
+        found, added, previous = new_points(report, DIGEST_POINTS)
+        sections.append({'report': report, 'points': found, 'added': added, 'previous': previous,
+                         'country': country_series.get(series)})
+    dated = sorted({r['report_date'] for r in reports if r['kind'] == 'report' and r['report_date']})
+    earlier = [d for d in dated if d < day]
+    later = [d for d in dated if d > day]
+    return render_template('digest.html',
+                          day=day,
+                          today=date.today(),
+                          brief=brief,
+                          brief_points=lead_points(brief, 6) if brief else [],
+                          summary=summary,
+                          summary_points=lead_points(summary, 6) if summary else [],
+                          sections=sections,
+                          previous_day=earlier[-1] if earlier else None,
+                          next_day=later[0] if later else None,
+                          latest_day=dated[-1] if dated else None)
+
+
+@app.route('/countries')
+def countries_page():
+    """Every country with its latest report and risk score"""
+    indexer.refresh()
+    try:
+        trends = {c['code']: c for c in charts.risk_trends(db_browser._connect, 90)['charts']}
+        error = None
+    except sqlite3.Error as exc:
+        trends, error = {}, str(exc)
+    cards = []
+    for country in countries.all_countries():
+        latest = indexer.latest(country['series'])
+        cards.append({**country, 'latest': latest,
+                      'reports': len(indexer.series_reports(country['series'])),
+                      'risk': trends.get(country['code'])})
+    return render_template('countries.html', cards=cards, error=error,
+                          today=date.today(), risk_size=(charts.WIDTH, charts.HEIGHT))
+
+
+@app.route('/country/<slug>')
+def country_page(slug):
+    """One country: latest report, what is new, risk over time, signals, reports"""
+    country = countries.by_slug(slug)
+    if country is None:
+        abort(404)
+    indexer.refresh()
+    series = indexer.series_reports(country['series'])
+    latest = series[-1] if series else None
+    found, added, previous = new_points(latest, 8) if latest else ([], None, None)
+    try:
+        risk = charts.risk_trends(db_browser._connect, 90)
+        country_risk = next((c for c in risk['charts'] if c['code'] == country['code']), None)
+        signals = charts.recent_signals(db_browser._connect, country['code'])
+        error = None
+    except sqlite3.Error as exc:
+        risk, country_risk, signals, error = None, None, [], str(exc)
+    return render_template('country.html',
+                          country=country,
+                          latest=latest,
+                          points=found,
+                          added=added,
+                          previous=previous,
+                          risk=risk,
+                          country_risk=country_risk,
+                          signals=signals,
+                          recent=list(reversed(series[-10:])),
+                          total=len(series),
+                          error=error,
+                          today=date.today())
+
+
+@app.route('/api/search')
+def api_search():
+    """Recent reports matching a search, as JSON (used by watched searches)"""
+    indexer.refresh()
+    query = request.args.get('q', '').strip()
+    days = min(max(1, request.args.get('days', WATCH_DAYS, type=int)), 365)
+    since = date.today() - timedelta(days=days - 1)
+    found = [r for r in indexer.search(query)
+             if query and r['kind'] == 'report' and r['report_date'] and r['report_date'] >= since]
+    found.sort(key=lambda r: (r['report_date'], r['score']), reverse=True)
+    return jsonify({
+        'query': query,
+        'days': days,
+        'count': len(found),
+        'results': [{
+            'title': r['title'] or r['filename'],
+            'key': r['filename'],
+            'url': url_for('view_report', safe_id=r['safe_id'], q=query),
+            'date': r['report_date'].isoformat(),
+            'series': r['series_label'],
+            'hits': r['hits'],
+        } for r in found[:20]],
+    })
 
 
 @app.errorhandler(404)

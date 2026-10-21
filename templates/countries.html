@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% from "_macros.html" import report_link %}
+
+{% block title %}Countries - OpenClaw Reports UI{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Countries</h2>
+    <p class="text-secondary">Latest report and risk score (last 90 days) for each country the agent covers.</p>
+    {% if error %}<div class="alert alert-error" style="margin-top: 0.75rem;">Risk scores unavailable: {{ error }}</div>{% endif %}
+</div>
+
+<div class="country-grid">
+    {% for card in cards %}
+    <div class="card country-card">
+        <h3><a href="/country/{{ card.slug }}">{{ card.name }}</a></h3>
+        {% if card.risk and card.risk.latest %}
+        <p class="country-risk">
+            Risk <strong>{{ card.risk.latest[1] }}</strong>
+            {% if card.risk.change is not none and card.risk.change != 0 %}
+            <small class="{{ 'text-danger' if card.risk.change > 0 else 'text-success' }}">{{ '%+d' % card.risk.change }}</small>
+            {% endif %}
+            <small class="text-secondary">on {{ card.risk.latest[0].strftime('%d %b') }}</small>
+        </p>
+        {% else %}
+        <p class="country-risk text-secondary">No recent risk score</p>
+        {% endif %}
+        {% if card.latest %}
+        <p>
+            {{ report_link(card.latest, label=card.latest.report_date.strftime('%a %d %b') ~ ' report') }}
+            {% if (today - card.latest.report_date).days > 3 %}<small class="freshness-stale">{{ (today - card.latest.report_date).days }} days old</small>{% endif %}
+        </p>
+        <p class="text-secondary"><small>{{ card.reports }} reports</small></p>
+        {% else %}
+        <p class="text-secondary">No reports yet.</p>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

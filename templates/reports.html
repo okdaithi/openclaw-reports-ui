@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import report_link %}
 
 {% block title %}Reports - OpenClaw Reports UI{% endblock %}
 
@@ -61,6 +62,9 @@
         {% if query or series or report_type %}
         &middot; <a href="/reports">Clear filters</a>
         {% endif %}
+        {% if query %}
+        &middot; <button type="button" class="btn-small" id="watch-search" data-term="{{ query }}">Watch this search</button>
+        {% endif %}
     </p>
 </div>
 
@@ -90,7 +94,7 @@
             {% endif %}
             <tr>
                 <td>
-                    <a href="/reports/{{ report.safe_id }}{% if query %}?q={{ query | urlencode }}{% endif %}">{{ report.title or report.filename }}</a>
+                    {{ report_link(report, query=query) }}
                     {% if report.title %}<br><small class="text-secondary">{{ report.filename }}</small>{% endif %}
                 </td>
                 <td>
@@ -152,4 +156,27 @@
         Page {{ page }} of {{ total_pages }}
     </small></p>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function() {
+        var button = document.getElementById('watch-search');
+        if (!button) { return; }
+        var terms = [];
+        try { terms = JSON.parse(localStorage.getItem('watchTerms')) || []; } catch (e) {}
+        var show = function() {
+            if (terms.indexOf(button.dataset.term) >= 0) {
+                button.textContent = 'Watching (see Home)';
+                button.disabled = true;
+            }
+        };
+        button.addEventListener('click', function() {
+            terms.push(button.dataset.term);
+            try { localStorage.setItem('watchTerms', JSON.stringify(terms)); } catch (e) {}
+            show();
+        });
+        show();
+    })();
+</script>
 {% endblock %}
