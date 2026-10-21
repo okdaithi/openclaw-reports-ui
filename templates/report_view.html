@@ -116,32 +116,38 @@
         }
     })();
 
-    // Mark the search term in the report (text nodes only, so the report's
-    // HTML is never re-parsed) and scroll to the first match
+    // Mark the search terms in the report (text nodes only, so the report's
+    // HTML is never re-parsed) and scroll to the first match. A single word
+    // also marks its longer forms, as the search does ("tariff" -> "tariffs").
     (function() {
-        var term = {{ highlight | tojson }};
-        if (!term) { return; }
+        var terms = {{ highlight_terms | tojson }};
+        if (!terms.length) { return; }
+        var escape = function(text) { return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); };
+        var parts = terms.slice().sort(function(a, b) { return b.length - a.length; }).map(function(term) {
+            var words = term.split(/\s+/).map(escape).join('\\s+');
+            return '\\b' + words + (term.indexOf(' ') < 0 ? '\\w*' : '');
+        });
+        var pattern = new RegExp(parts.join('|'), 'gi');
         var root = document.querySelector('.markdown-content');
-        var needle = term.toLowerCase();
         var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
         var nodes = [];
         while (walker.nextNode()) { nodes.push(walker.currentNode); }
         var count = 0;
         nodes.forEach(function(node) {
             var text = node.nodeValue;
-            var lower = text.toLowerCase();
-            var at = lower.indexOf(needle);
-            if (at < 0) { return; }
+            pattern.lastIndex = 0;
+            if (!pattern.test(text)) { return; }
+            pattern.lastIndex = 0;
             var frag = document.createDocumentFragment();
-            var cursor = 0;
-            while (at >= 0) {
-                frag.appendChild(document.createTextNode(text.slice(cursor, at)));
+            var cursor = 0, match;
+            while ((match = pattern.exec(text)) !== null) {
+                if (!match[0]) { pattern.lastIndex += 1; continue; }
+                frag.appendChild(document.createTextNode(text.slice(cursor, match.index)));
                 var mark = document.createElement('mark');
-                mark.textContent = text.slice(at, at + term.length);
+                mark.textContent = match[0];
                 frag.appendChild(mark);
                 count += 1;
-                cursor = at + term.length;
-                at = lower.indexOf(needle, cursor);
+                cursor = match.index + match[0].length;
             }
             frag.appendChild(document.createTextNode(text.slice(cursor)));
             node.parentNode.replaceChild(frag, node);

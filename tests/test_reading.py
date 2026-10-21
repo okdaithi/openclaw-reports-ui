@@ -64,7 +64,7 @@ def test_search_links_open_the_report_with_the_term_marked(client, reports_dir):
     assert f'/reports/mika-china-{day(0)}_md?q=plenum' in page
     report = client.get(f'/reports/mika-china-{day(0)}_md?q=plenum').get_data(as_text=True)
     assert 'Showing matches for "plenum"' in report
-    assert 'var term = "plenum";' in report
+    assert 'var terms = ["plenum"];' in report
 
 
 def test_the_type_filter_still_applies_to_a_search(client, reports_dir):
@@ -160,3 +160,54 @@ def test_the_changes_page_compares_with_the_previous_report(client, reports_dir)
     # The first report of a series has nothing to compare with
     first = client.get(f'/reports/mika-china-{day(1)}_md/changes')
     assert first.status_code == 302 and first.headers['Location'].endswith(f'/reports/mika-china-{day(1)}_md')
+
+
+# --- full-text search ----------------------------------------------------------------
+
+
+def test_every_word_must_appear_but_not_side_by_side(client, reports_dir):
+    write_report(reports_dir, f'mika-china-{day(0)}.md', 'China', body='Export rules tightened on chips.')
+    write_report(reports_dir, f'mika-usa-{day(0)}.md', 'USA', body='Chips are cheap.')
+    assert titles(client.get('/reports?q=chips+export').get_data(as_text=True)) == ['China']
+
+
+def test_a_quoted_phrase_must_appear_as_written(client, reports_dir):
+    write_report(reports_dir, f'mika-china-{day(0)}.md', 'China', body='New export controls on chips.')
+    write_report(reports_dir, f'mika-usa-{day(0)}.md', 'USA', body='Controls on export of chips.')
+    page = client.get('/reports?q=%22export+controls%22').get_data(as_text=True)
+    assert titles(page) == ['China']
+    assert '<mark>export controls</mark>' in page
+
+
+def test_a_word_finds_its_other_forms(client, reports_dir):
+    write_report(reports_dir, f'mika-china-{day(0)}.md', 'China', body='New tariffs announced.')
+    page = client.get('/reports?q=tariff').get_data(as_text=True)
+    assert titles(page) == ['China'] and '<mark>tariffs</mark>' in page
+
+
+def test_punctuation_alone_finds_nothing_without_an_error(client, reports_dir):
+    write_report(reports_dir, f'mika-china-{day(0)}.md', 'China')
+    for query in ('%22', '-', '*', 'AND', '%22%22'):
+        response = client.get(f'/reports?q={query}')
+        assert response.status_code == 200, query
+
+
+def test_the_index_follows_files_that_change_or_go(client, reports_dir):
+    path = write_report(reports_dir, f'mika-china-{day(0)}.md', 'China', body='Lithium.')
+    assert titles(client.get('/reports?q=lithium').get_data(as_text=True)) == ['China']
+    path.write_text('# China\n\nCobalt now.\n', encoding='utf-8')
+    age(path, 0)  # a new mtime
+    assert titles(client.get('/reports?q=lithium').get_data(as_text=True)) == []
+    assert titles(client.get('/reports?q=cobalt').get_data(as_text=True)) == ['China']
+    path.unlink()
+    assert titles(client.get('/reports?q=cobalt').get_data(as_text=True)) == []
+
+
+def test_the_folder_is_rescanned_only_after_the_interval(reports_dir, monkeypatch):
+    monkeypatch.setattr('modules.report_indexer.SCAN_INTERVAL', 3600)
+    indexer = app_module.indexer
+    indexer.scan_reports()
+    write_report(reports_dir, f'mika-china-{day(0)}.md', 'China')
+    assert indexer.refresh() == []  # still the scan from a moment ago
+    indexer._scanned_at -= 3600
+    assert [r['title'] for r in indexer.refresh()] == ['China']
