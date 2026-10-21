@@ -2,51 +2,63 @@
 
 {% block title %}Home - OpenClaw Reports UI{% endblock %}
 
+{% macro lead_report(label, report, state) %}
+<div class="today-lead">
+    <div class="today-lead-label">{{ label }}</div>
+    {% if report %}
+    <a class="today-lead-title" href="/reports/{{ report.safe_id }}">{{ report.title or report.filename }}</a>
+    <div class="freshness freshness-{{ state }}">
+        {% if state == 'today' %}
+        Today, updated {{ report.modified.strftime('%H:%M') }}
+        {% elif state == 'yesterday' %}
+        Not out yet today; latest is yesterday's ({{ report.report_date.strftime('%a %d %b') }})
+        {% else %}
+        Out of date: latest is {{ report.report_date.strftime('%a %d %b') }}
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="freshness freshness-stale">None found</div>
+    {% endif %}
+</div>
+{% endmacro %}
+
 {% block content %}
 <div class="card">
-    <h2>Dashboard Overview</h2>
-    <p>Welcome to the OpenClaw Intelligence Dashboard. This interface provides read-only access to intelligence reports and the structured database.</p>
-</div>
+    <h2>Today <span class="text-secondary today-date">{{ today.strftime('%A %d %B %Y') }}</span></h2>
+    <div class="today-leads">
+        {{ lead_report('Daily Brief', brief, brief_state) }}
+        {{ lead_report('Executive Summary', summary, summary_state) }}
+    </div>
 
-<h3 style="margin-bottom: 1rem;">Report Statistics</h3>
-<div class="stats-grid">
-    <div class="stat-box">
-        <span class="number">{{ report_stats.total_reports or 0 }}</span>
-        <span class="label">Total Reports</span>
-    </div>
-    <div class="stat-box">
-        <span class="number">{{ report_stats.total_size_mb or 0 }}</span>
-        <span class="label">Total Size (MB)</span>
-    </div>
-    {% if report_stats.by_type %}
-    <div class="stat-box">
-        <span class="number">{{ report_stats.by_type | length }}</span>
-        <span class="label">Report Types</span>
-    </div>
+    <h3>Other reports dated today</h3>
+    {% if todays %}
+    <ul class="today-list">
+        {% for report in todays %}
+        <li>
+            <a href="/reports/{{ report.safe_id }}">{{ report.series_label }}</a>
+            <small class="text-secondary">{{ report.title }}</small>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-secondary">None yet.</p>
     {% endif %}
 </div>
 
-{% if report_stats.by_type %}
-<div class="card">
-    <h3>Reports by Type</h3>
-    <table>
-        <thead>
-            <tr>
-                <th>Type</th>
-                <th>Count</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for type, count in report_stats.by_type.items() %}
-            <tr>
-                <td>{{ type }}</td>
-                <td>{{ count }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+<div class="stats-grid">
+    <div class="stat-box">
+        <span class="number">{{ this_week }}</span>
+        <span class="label">Reports in the last 7 days</span>
+    </div>
+    <div class="stat-box">
+        <span class="number">{{ series_count }}</span>
+        <span class="label">Report series</span>
+    </div>
+    <div class="stat-box">
+        <span class="number">{{ report_stats.total_reports or 0 }}</span>
+        <span class="label">Files indexed</span>
+    </div>
 </div>
-{% endif %}
 
 <h3 style="margin-bottom: 1rem; margin-top: 2rem;">Database Statistics</h3>
 <div class="stats-grid">
@@ -75,18 +87,18 @@
         <thead>
             <tr>
                 <th>Report</th>
-                <th>Type</th>
+                <th>Series</th>
+                <th>Date</th>
                 <th>Modified</th>
-                <th>Size</th>
             </tr>
         </thead>
         <tbody>
             {% for report in latest_reports %}
             <tr>
-                <td><a href="/reports/{{ report.safe_id }}">{{ report.filename }}</a></td>
-                <td><span class="badge badge-info">{{ report.type }}</span></td>
+                <td><a href="/reports/{{ report.safe_id }}">{{ report.title or report.filename }}</a></td>
+                <td><a class="badge badge-info" href="/reports?series={{ report.series | urlencode }}">{{ report.series_label }}</a></td>
+                <td>{{ report.report_date.strftime('%Y-%m-%d') }}</td>
                 <td>{{ report.modified.strftime('%Y-%m-%d %H:%M') }}</td>
-                <td>{{ (report.size / 1024) | round(1) }} KB</td>
             </tr>
             {% endfor %}
         </tbody>

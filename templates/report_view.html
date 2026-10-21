@@ -2,16 +2,37 @@
 
 {% block title %}{{ title }} - OpenClaw Reports UI{% endblock %}
 
+{% macro series_nav() %}
+{% if report.series %}
+<div class="series-nav" role="navigation" aria-label="{{ report.series_label }} reports">
+    {% if nearby.previous %}
+    <a href="/reports/{{ nearby.previous.safe_id }}" rel="prev">‹ {{ nearby.previous.report_date.strftime('%a %d %b') }}</a>
+    {% else %}
+    <span class="text-muted">‹ First in series</span>
+    {% endif %}
+    <a href="/reports?series={{ report.series | urlencode }}">All {{ nearby.count }} {{ report.series_label }} reports</a>
+    {% if nearby.next %}
+    <a href="/reports/{{ nearby.next.safe_id }}" rel="next">{{ nearby.next.report_date.strftime('%a %d %b') }} ›</a>
+    {% else %}
+    <span class="text-muted">Latest ›</span>
+    {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
 {% block content %}
 <div class="reading-column">
 <div style="margin-bottom: 1rem;">
     <a href="/reports">← Back to Reports</a>
 </div>
 
+{{ series_nav() }}
+
 <div class="card">
     <div class="report-header">
         <h2 style="margin-bottom: 0.5rem;">{{ title }}</h2>
         <div class="report-meta">
+            {% if report.report_date %}<span>Report date: {{ report.report_date.strftime('%A %d %B %Y') }}</span>{% endif %}
             <span>📁 {{ report.folder }}</span>
             <span>📅 {{ report.modified.strftime('%Y-%m-%d %H:%M') }}</span>
             <span>📊 {{ (report.size / 1024) | round(1) }} KB</span>
@@ -23,6 +44,8 @@
         {{ content | safe }}
     </div>
 </div>
+
+{{ series_nav() }}
 
 <div class="card">
     <h3>Report Details</h3>

@@ -418,6 +418,72 @@
         .text-secondary { color: var(--text-secondary); }
         .text-muted { color: var(--text-muted); }
         
+
+        /* Today panel */
+        .today-date { font-size: 1rem; font-weight: normal; margin-left: 0.5rem; }
+        .today-leads {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .today-lead {
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+        }
+        .today-lead-label {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+        }
+        .today-lead-title { display: block; font-size: 1.1rem; font-weight: 600; margin: 0.25rem 0; }
+        .freshness { font-size: 0.9rem; }
+        .freshness-today { color: var(--success); }
+        .freshness-yesterday { color: var(--text-secondary); }
+        .freshness-stale { color: var(--warning); font-weight: 600; }
+        .today-list { list-style: none; margin-top: 0.5rem; }
+        .today-list li { padding: 0.25rem 0; border-bottom: 1px solid var(--border-light); }
+        .today-list small { margin-left: 0.5rem; }
+
+        /* Reports list */
+        .report-filters {
+            display: grid;
+            grid-template-columns: 1fr 200px 200px auto;
+            gap: 1rem;
+        }
+        .inline-check {
+            display: inline-flex;
+            gap: 0.5rem;
+            align-items: center;
+            margin-top: 0.75rem;
+            font-weight: normal;
+            color: var(--text-secondary);
+        }
+        .inline-check input { width: auto; }
+        .table-scroll { overflow-x: auto; }
+        .nowrap { white-space: nowrap; }
+        th a { color: inherit; }
+        tr.date-group th {
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            padding-top: 1.25rem;
+        }
+
+        /* Previous / next report in a series */
+        .series-nav {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .series-nav a, .series-nav span {
+            padding: 0.5rem 0;
+        }
+
         /* Footer */
         footer {
             background: var(--accent-dark);
@@ -464,6 +530,10 @@
             }
             
             .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .report-filters {
                 grid-template-columns: 1fr;
             }
         }
