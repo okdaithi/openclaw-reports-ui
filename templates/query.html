@@ -53,7 +53,7 @@
                     {% for key, value in row.items() %}
                     <td>
                         {% if value is none %}
-                        <em style="color: #bbb;">NULL</em>
+                        <em class="text-muted">NULL</em>
                         {% elif value is string and value | length > 200 %}
                         {{ value[:200] }}...
                         {% else %}

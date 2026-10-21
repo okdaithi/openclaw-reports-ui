@@ -4,7 +4,8 @@ OpenClaw Reports UI - Local Web Interface
 Lightweight Flask app for browsing reports and querying intelligence database
 """
 import os
-from flask import Flask, render_template, request, jsonify, abort
+from datetime import date, timedelta
+from flask import Flask, render_template, request, jsonify, abort, redirect, url_for
 from modules.report_indexer import ReportIndexer
 from modules.markdown_renderer import MarkdownRenderer
 from modules.db_browser import DatabaseBrowser
@@ -13,6 +14,22 @@ from modules.db_browser import DatabaseBrowser
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
+
+MAX_PER_PAGE = 500
+REPORTS_PER_PAGE = 50
+
+# The series shown first on the home page, in this order
+BRIEF_SERIES = 'daily-brief'
+SUMMARY_SERIES = 'mika-executive-summary'
+
+# Sort keys for the reports list; date sorts by the date in the file name
+REPORT_SORTS = {
+    'date': lambda r: (r['report_date'] or r['modified'].date(), r['modified']),
+    'title': lambda r: (r['title'] or r['filename']).lower(),
+    'series': lambda r: ((r['series_label'] or '~').lower(), r['report_date'] or date.min),
+    'type': lambda r: (r['type'], r['modified']),
+    'size': lambda r: r['size'],
+}
 
 # Initialize modules
 indexer = ReportIndexer()
@@ -27,45 +44,121 @@ print(f"Found {len(indexer._index)} reports")
 
 @app.route('/')
 def index():
-    """Home page with overview"""
+    """Home page: today's reports first, then the overview"""
     indexer.scan_reports()
     report_stats = indexer.get_stats()
     db_stats = db_browser.get_db_stats()
-    
-    # Get latest reports
-    latest_reports = indexer._index[:10]
-    
+    today = date.today()
+
+    brief = indexer.latest(BRIEF_SERIES)
+    summary = indexer.latest(SUMMARY_SERIES)
+    lead = {BRIEF_SERIES, SUMMARY_SERIES}
+    todays = [r for r in indexer.on_date(today) if r['series'] not in lead]
+    todays.sort(key=lambda r: r['series_label'] or '')
+    week_start = today - timedelta(days=6)
+    this_week = sum(
+        1 for r in indexer._index
+        if r['kind'] == 'report' and r['report_date'] and r['report_date'] >= week_start
+    )
+
+    # Latest reports, leaving out design notes and test runs
+    latest_reports = [r for r in indexer._index if r['kind'] == 'report'][:10]
+
     return render_template('index.html',
+                          today=today,
+                          brief=brief,
+                          brief_state=freshness(brief, today),
+                          summary=summary,
+                          summary_state=freshness(summary, today),
+                          todays=todays,
+                          this_week=this_week,
+                          series_count=len({r['series'] for r in indexer._index if r['kind'] == 'report'}),
                           report_stats=report_stats,
                           db_stats=db_stats,
                           latest_reports=latest_reports)
 
 
+def freshness(report, today):
+    """'today', 'yesterday' (not out yet today) or 'stale' (older, or none at all)"""
+    if report is None:
+        return 'stale'
+    if report['report_date'] >= today:
+        return 'today'
+    if report['report_date'] == today - timedelta(days=1):
+        return 'yesterday'
+    return 'stale'
+
+
 @app.route('/reports')
 def reports():
-    """List all reports with search and filtering"""
+    """List reports, newest first, with search, filters, sorting and pages"""
     indexer.scan_reports()
-    query = request.args.get('q', '')
+    query = request.args.get('q', '').strip()
     report_type = request.args.get('type', '')
-    
+    series = request.args.get('series', '')
+    show_all = request.args.get('all') == '1'
+    sort = request.args.get('sort', 'date')
+    if sort not in REPORT_SORTS:
+        sort = 'date'
+    descending = request.args.get('dir', 'desc' if sort in ('date', 'size') else 'asc') == 'desc'
+
     # Get reports
     if query:
         results = indexer.search(query)
     else:
         results = indexer._index
-    
-    # Filter by type
+
+    # Design notes and test runs only appear on request
+    hidden = sum(1 for r in results if r['kind'] != 'report')
+    if not show_all:
+        results = [r for r in results if r['kind'] == 'report']
+
+    # Filter by type and series
     if report_type:
         results = [r for r in results if r['type'] == report_type]
-    
-    # Get unique types for filter dropdown
-    all_types = sorted(set(r['type'] for r in indexer._index))
-    
+    if series:
+        results = [r for r in results if r['series'] == series]
+
+    results = sorted(results, key=REPORT_SORTS[sort], reverse=descending)
+
+    total = len(results)
+    total_pages = max(1, (total + REPORTS_PER_PAGE - 1) // REPORTS_PER_PAGE)
+    page = min(max(1, request.args.get('page', 1, type=int)), total_pages)
+    shown = results[(page - 1) * REPORTS_PER_PAGE:page * REPORTS_PER_PAGE]
+
+    # Get unique types and series for the filter dropdowns
+    pool = indexer._index if show_all else [r for r in indexer._index if r['kind'] == 'report']
+    all_types = sorted(set(r['type'] for r in pool))
+    all_series = sorted(
+        {(r['series'], r['series_label']) for r in pool if r['series']},
+        key=lambda s: s[1].lower(),
+    )
+
+    params = {'q': query, 'type': report_type, 'series': series,
+              'all': '1' if show_all else '', 'sort': sort,
+              'dir': 'desc' if descending else 'asc'}
+
+    def link(**changes):
+        """This list's URL with some parameters changed, leaving out empty ones"""
+        merged = {**params, **changes}
+        return url_for('reports', **{k: v for k, v in merged.items() if v not in ('', None)})
+
     return render_template('reports.html',
-                          reports=results,
+                          reports=shown,
+                          total=total,
+                          hidden=0 if show_all else hidden,
+                          page=page,
+                          total_pages=total_pages,
+                          link=link,
                           query=query,
                           report_type=report_type,
-                          all_types=all_types)
+                          series=series,
+                          series_label=dict(all_series).get(series, series),
+                          show_all=show_all,
+                          sort=sort,
+                          descending=descending,
+                          all_types=all_types,
+                          all_series=all_series)
 
 
 @app.route('/reports/<safe_id>')
@@ -76,17 +169,24 @@ def view_report(safe_id):
     report = indexer.get_report(safe_id)
     
     if not report:
+        # Reports move into archive/ after a few days; follow old links there
+        moved = indexer.find_moved(safe_id)
+        if moved:
+            return redirect(url_for('view_report', safe_id=moved['safe_id']))
         abort(404)
     
     # Read and render content
     content = indexer.read_content(report['path'])
-    html_content = renderer.render(content)
+    html_content = renderer.render(content, strip_title=True)
     title = renderer.extract_title(content)
+    if title == 'Untitled Report' and report['title']:
+        title = report['title']
     
     return render_template('report_view.html',
                           report=report,
                           title=title,
-                          content=html_content)
+                          content=html_content,
+                          nearby=indexer.neighbours(report))
 
 
 @app.route('/api/reports/refresh')
@@ -120,8 +220,8 @@ def database():
 def view_table(table_name):
     """View table contents with pagination"""
     # Get pagination parameters
-    page = int(request.args.get('page', 1))
-    per_page = int(request.args.get('per_page', 50))
+    page = max(1, request.args.get('page', 1, type=int))
+    per_page = min(max(1, request.args.get('per_page', 50, type=int)), MAX_PER_PAGE)
     offset = (page - 1) * per_page
     
     # Get filter parameters

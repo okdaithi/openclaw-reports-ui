@@ -2,17 +2,33 @@
 
 {% block title %}Reports - OpenClaw Reports UI{% endblock %}
 
+{% macro sort_header(key, label) %}
+{% if sort == key %}
+<a href="{{ link(sort=key, dir='asc' if descending else 'desc', page='') }}" aria-sort="{{ 'descending' if descending else 'ascending' }}">{{ label }} {{ '▼' if descending else '▲' }}</a>
+{% else %}
+<a href="{{ link(sort=key, dir='', page='') }}">{{ label }}</a>
+{% endif %}
+{% endmacro %}
+
 {% block content %}
 <div class="card">
     <h2>Intelligence Reports</h2>
-    
+
     <form method="get" style="margin-top: 1rem;">
-        <div style="display: grid; grid-template-columns: 1fr 200px auto; gap: 1rem;">
+        <div class="report-filters">
             <div class="form-group" style="margin: 0;">
-                <input type="search" name="q" placeholder="Search reports..." value="{{ query or '' }}">
+                <input type="search" name="q" placeholder="Search reports..." value="{{ query or '' }}" aria-label="Search reports">
             </div>
             <div class="form-group" style="margin: 0;">
-                <select name="type">
+                <select name="series" aria-label="Series">
+                    <option value="">All series</option>
+                    {% for slug, label in all_series %}
+                    <option value="{{ slug }}" {% if slug == series %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+                <select name="type" aria-label="Type">
                     <option value="">All Types</option>
                     {% for type in all_types %}
                     <option value="{{ type }}" {% if type == report_type %}selected{% endif %}>{{ type }}</option>
@@ -23,39 +39,68 @@
                 <button type="submit">Search</button>
             </div>
         </div>
+        <label class="inline-check">
+            <input type="checkbox" name="all" value="1" {% if show_all %}checked{% endif %} onchange="this.form.submit()">
+            Include design notes and test runs
+        </label>
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="dir" value="{{ 'desc' if descending else 'asc' }}">
     </form>
 </div>
 
-{% if query %}
 <div class="card">
-    <p><strong>Search results for:</strong> "{{ query }}"{% if report_type %} (Type: {{ report_type }}){% endif %}</p>
-    <p>Found {{ reports | length }} report(s)</p>
+    <p>
+        {% if query %}<strong>Search results for:</strong> "{{ query }}" &middot; {% endif %}
+        {% if series %}<strong>Series:</strong> {{ series_label }} &middot; {% endif %}
+        {% if report_type %}<strong>Type:</strong> {{ report_type }} &middot; {% endif %}
+        {{ total }} report{{ '' if total == 1 else 's' }}
+        {% if hidden %}
+        <small class="text-secondary">({{ hidden }} design notes and test runs hidden;
+            <a href="{{ link(all='1', page='') }}">show them</a>)</small>
+        {% endif %}
+        {% if query or series or report_type %}
+        &middot; <a href="/reports">Clear filters</a>
+        {% endif %}
+    </p>
 </div>
-{% endif %}
 
 {% if reports %}
 <div class="card">
+    <div class="table-scroll">
     <table>
         <thead>
             <tr>
-                <th>Report</th>
-                <th>Type</th>
-                <th>Folder</th>
-                <th>Modified</th>
-                <th>Size</th>
+                <th>{{ sort_header('title', 'Report') }}</th>
+                <th>{{ sort_header('series', 'Series') }}</th>
+                <th>{{ sort_header('date', 'Date') }}</th>
+                <th>{{ sort_header('type', 'Type') }}</th>
+                <th>{{ sort_header('size', 'Size') }}</th>
                 {% if query %}<th>Match</th>{% endif %}
             </tr>
         </thead>
         <tbody>
+            {% set ns = namespace(day=None) %}
             {% for report in reports %}
+            {% set day = report.report_date or report.modified.date() %}
+            {% if sort == 'date' and day != ns.day %}
+            {% set ns.day = day %}
+            <tr class="date-group">
+                <th colspan="{{ 6 if query else 5 }}">{{ day.strftime('%A %d %B %Y') }}</th>
+            </tr>
+            {% endif %}
             <tr>
                 <td>
-                    <a href="/reports/{{ report.safe_id }}">{{ report.filename }}</a>
+                    <a href="/reports/{{ report.safe_id }}">{{ report.title or report.filename }}</a>
+                    {% if report.title %}<br><small class="text-secondary">{{ report.filename }}</small>{% endif %}
                 </td>
-                <td><span class="badge badge-info">{{ report.type }}</span></td>
-                <td><small style="color: #7f8c8d;">{{ report.folder }}</small></td>
-                <td>{{ report.modified.strftime('%Y-%m-%d %H:%M') }}</td>
-                <td>{{ (report.size / 1024) | round(1) }} KB</td>
+                <td>
+                    {% if report.series %}
+                    <a href="{{ link(series=report.series, page='') }}">{{ report.series_label }}</a>
+                    {% endif %}
+                </td>
+                <td class="nowrap">{{ day.strftime('%Y-%m-%d') }}</td>
+                <td class="nowrap"><span class="badge badge-info">{{ report.type }}</span></td>
+                <td class="nowrap">{{ (report.size / 1024) | round(1) }} KB</td>
                 {% if query %}
                 <td>
                     {% if report.match_type == 'filename' %}
@@ -65,7 +110,7 @@
                     {% elif report.match_type == 'content' %}
                         <span class="badge badge-warning">Content</span>
                         {% if report.snippet %}
-                        <br><small style="color: #7f8c8d;">{{ report.snippet }}</small>
+                        <br><small class="text-secondary">{{ report.snippet }}</small>
                         {% endif %}
                     {% endif %}
                 </td>
@@ -74,7 +119,28 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="{{ link(page=1) }}">« First</a>
+    <a href="{{ link(page=page - 1) }}">‹ Prev</a>
+    {% endif %}
+    {% for p in range([1, page - 2] | max, [total_pages, page + 2] | min + 1) %}
+        {% if p == page %}
+        <span class="active">{{ p }}</span>
+        {% else %}
+        <a href="{{ link(page=p) }}">{{ p }}</a>
+        {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+    <a href="{{ link(page=page + 1) }}">Next ›</a>
+    <a href="{{ link(page=total_pages) }}">Last »</a>
+    {% endif %}
+</div>
+{% endif %}
 {% else %}
 <div class="card">
     <p>No reports found.</p>
@@ -83,8 +149,8 @@
 
 <div class="card">
     <p><small>
-        <a href="/api/reports/refresh">Refresh Index</a> | 
-        Total: {{ reports | length }} reports
+        <a href="/api/reports/refresh">Refresh Index</a> |
+        Page {{ page }} of {{ total_pages }}
     </small></p>
 </div>
 {% endblock %}

@@ -8,6 +8,9 @@ so other people and agents can reuse and improve it.
 
 ## What it does
 
+- **Today** — the home page leads with today's Daily Brief and Executive
+  Summary, says when either is not out yet or is out of date, and lists the
+  other reports dated today.
 - **Report browser** — recursively scans a directory of `.md` reports, classifies them
   by type from their path/filename, and lists them newest-first.
 - **Full-text search** — matches report filename, folder path, and file content
@@ -103,9 +106,18 @@ All configuration is via environment variables:
 
 ### Browsing reports
 
-Go to **Reports**, search by keyword, optionally filter by report type
-(Daily Brief, Country Report, Executive Summary, Twitter Digest, Structured Data,
-Other), then click through to the rendered view.
+Go to **Reports**, search by keyword, optionally filter by series (a country,
+Daily Brief, RSS Digest...) or report type, then click through to the rendered
+view. The list is newest first, grouped by day, 50 to a page; click a column
+heading to sort by it.
+
+A report's series and date come from its file name (`mika-china-2026-10-21.md`
+is the China series on 21 Oct 2026), so a report keeps its place after it moves
+into `archive/`. Undated files (design notes, logs) and test runs
+(`daily-brief-hermes-test-…`) are hidden unless you tick "Include design notes
+and test runs". A report page links to the previous and next report of its
+series, and an old link to a report that has since been archived redirects to
+its new place.
 
 ### Exploring the database
 
@@ -240,13 +252,11 @@ systemctl --user enable --now openclaw-reports-ui.service
 - **Content search is O(n) on file reads.** An SQLite FTS5 index would be a real
   improvement; the in-memory cache is unbounded.
 - **Index lives in memory** and is rebuilt on each request rather than persisted.
-- **No tests, no CI, no linter config** yet — this would be the most valuable
-  first contribution.
+- **No CI or linter config** yet. Tests: `pip install pytest` in the venv,
+  then `python -m pytest tests`.
 - **No authentication** — every route is anonymous. This is a deliberate
   consequence of the original loopback-or-tailnet deployment; if you bind to a
   shared network, everything is readable by anyone who can reach the port.
-- **Unbounded `per_page` / page params** on `/database/<table>` are read straight
-  from query args without clamps.
 - **Content cache never evicts**, which matters for large report trees.
 - **`SECRET_KEY` fallback** is a development placeholder; there are no
   session-dependent features yet, so it is currently low-impact.

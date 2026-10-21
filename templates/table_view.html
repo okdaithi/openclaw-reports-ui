@@ -63,7 +63,7 @@
                     <td>
                         {% set value = row[col.name] %}
                         {% if value is none %}
-                        <em style="color: #bbb;">NULL</em>
+                        <em class="text-muted">NULL</em>
                         {% elif value is string and value | length > 100 %}
                         {{ value[:100] }}...
                         {% else %}

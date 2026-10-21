@@ -1,6 +1,8 @@
 """
 Markdown Renderer - Converts markdown to HTML with syntax highlighting
 """
+import re
+
 import markdown
 import nh3
 from markdown.extensions.codehilite import CodeHiliteExtension
@@ -38,6 +40,9 @@ def sanitize_html(html: str) -> str:
     )
 
 
+_LEADING_H1 = re.compile(r'^\s*<h1\b[^>]*>.*?</h1>\s*', re.DOTALL)
+
+
 class MarkdownRenderer:
     def __init__(self):
         self.md = markdown.Markdown(
@@ -58,15 +63,22 @@ class MarkdownRenderer:
             }
         )
     
-    def render(self, content: str) -> str:
-        """Render markdown to sanitized HTML"""
+    def render(self, content: str, strip_title: bool = False) -> str:
+        """Render markdown to sanitized HTML.
+
+        strip_title drops a leading H1 so a page that already shows the
+        report title in its own header doesn't repeat it.
+        """
         # Reset the markdown instance
         self.md.reset()
         
         # Convert to HTML
         html = self.md.convert(content)
         
-        return sanitize_html(html)
+        html = sanitize_html(html)
+        if strip_title:
+            html = _LEADING_H1.sub('', html, count=1)
+        return html
     
     def extract_title(self, content: str) -> str:
         """Extract title from markdown (first H1)"""
