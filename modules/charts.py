@@ -107,6 +107,18 @@ def risk_trends(connect: Callable[[], sqlite3.Connection], days: Optional[int],
     }
 
 
+def pair_chart(risk: Dict, a: str, b: str) -> Dict:
+    """Two countries' risk lines on one chart; risk_trends already puts every
+    country on the same axis, so this picks the two"""
+    by_code = {c['code']: c for c in risk['charts']}
+    lines = [{'code': code, 'name': COUNTRY_NAMES.get(code, code),
+              'path': by_code[code]['path'] if code in by_code else '',
+              'points': by_code[code]['points'] if code in by_code else []}
+             for code in (a, b)]
+    return {'width': risk['width'], 'height': risk['height'], 'grid': risk['grid'],
+            'first': risk['first'], 'last': risk['last'], 'lines': lines}
+
+
 def signal_grid(connect: Callable[[], sqlite3.Connection],
                 end: Optional[date] = None, days: int = 7) -> Dict:
     """Signals per category and report day for the `days` days up to `end`.

@@ -1,8 +1,10 @@
 """Links between the countries the agent covers, from what their reports share.
 
-The database's own entity tables (entity_mentions, v_entity_cooccurrence)
-stopped being written in February 2026 (68 mentions, the latest dated
-2026-02-22), so links are worked out from current data instead:
+Since loader v1.5 (2026-10-23) the agent records which entities each report
+names (entity_mentions), so mentions and shared entities come from there.
+For a window without any (the tables were not written between February and
+October 2026), they are worked out from the signals' text instead, with the
+same terms the loader uses:
 
 - mentions: a signal in one country's report that names another covered
   country (by name, adjective, capital or leader; COUNTRY_TERMS);
@@ -148,25 +150,60 @@ def mentioned(text: str, own: str) -> List[str]:
     return [code for code, pattern in _COUNTRY_RE.items() if code != own and pattern.search(text)]
 
 
+_NAME_TO_CODE = {name: code for code, (name, _) in countries.COUNTRIES.items()}
+
+
+def _recorded(conn, start: date, end: date):
+    """(mentions, entities) from entity_mentions, or None when the window has none"""
+    try:
+        rows = conn.execute(
+            '''SELECT r.country, e.name, SUM(m.mention_count)
+               FROM entity_mentions m JOIN entities e ON e.id = m.entity_id JOIN reports r ON r.id = m.report_id
+               WHERE substr(r.report_date, 1, 10) BETWEEN ? AND ?
+               GROUP BY 1, 2''', (start.isoformat(), end.isoformat())).fetchall()
+    except sqlite3.Error:
+        return None
+    if not rows:
+        return None
+    mentions = defaultdict(int)
+    entities = defaultdict(lambda: defaultdict(int))
+    for country, name, count in rows:
+        country = _SAME_COUNTRY.get(country, country)
+        if country not in countries.COUNTRIES:
+            continue
+        other = _NAME_TO_CODE.get(name)
+        if other:
+            if other != country:
+                mentions[(country, other)] += count
+        else:
+            entities[country][name] += count
+    return mentions, entities
+
+
 def links(connect: Callable[[], sqlite3.Connection], end: date, days: int = 7) -> Dict:
     """Country pairs with their mention, shared-source and shared-entity counts"""
     start, end = _window(end, days)
     conn = connect()
     try:
-        patterns = entity_patterns(conn)
-        signals = list(_signals(conn, start, end))
+        recorded = _recorded(conn, start, end)
+        if recorded is None:
+            patterns = entity_patterns(conn)
+            signals = list(_signals(conn, start, end))
         sources = _sources(conn, start, end)
     finally:
         conn.close()
 
-    mentions = defaultdict(int)                  # (from, to) -> signals
-    entities = defaultdict(lambda: defaultdict(int))   # country -> entity -> signals
-    for signal in signals:
-        for other in mentioned(signal['text'], signal['country']):
-            mentions[(signal['country'], other)] += 1
-        for name, pattern in patterns.items():
-            if pattern.search(signal['text']):
-                entities[signal['country']][name] += 1
+    if recorded is not None:
+        mentions, entities = recorded            # from the loader's entity_mentions
+    else:
+        mentions = defaultdict(int)                  # (from, to) -> signals
+        entities = defaultdict(lambda: defaultdict(int))   # country -> entity -> signals
+        for signal in signals:
+            for other in mentioned(signal['text'], signal['country']):
+                mentions[(signal['country'], other)] += 1
+            for name, pattern in patterns.items():
+                if pattern.search(signal['text']):
+                    entities[signal['country']][name] += 1
 
     found = []
     codes = sorted(countries.COUNTRIES)
@@ -183,7 +220,8 @@ def links(connect: Callable[[], sqlite3.Connection], end: date, days: int = 7) -
                           'sources': shared_sources, 'entities': shared[:8],
                           'entity_count': len(shared)})
     found.sort(key=lambda link: (-link['weight'], link['a'], link['b']))
-    return {'start': start.isoformat(), 'end': end.isoformat(), 'links': found[:MAX_LINKS]}
+    return {'start': start.isoformat(), 'end': end.isoformat(), 'links': found[:MAX_LINKS],
+            'from': 'entity_mentions' if recorded is not None else 'signal text'}
 
 
 def evidence(connect: Callable[[], sqlite3.Connection], a: str, b: str, end: date,

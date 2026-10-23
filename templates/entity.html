@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% from "_macros.html" import report_link %}
+
+{% block title %}{{ name }} - OpenClaw Reports UI{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 1rem;"><a href="/entities">← All entities</a></div>
+
+{% if error %}
+<div class="card"><div class="alert alert-error">The database could not be read: {{ error }}</div></div>
+{% else %}
+<div class="card">
+    <h2>{{ detail.name }} <span class="type-chip type-{{ detail.type }}">{{ detail.type }}</span></h2>
+    <p class="text-secondary">
+        Mentioned in {{ detail.reports | length }} report{{ '' if detail.reports | length == 1 else 's' }} over the last {{ days }} days
+        ({{ detail.total }} mentions in all, since {{ detail.first_seen }}).
+        {% if detail.covered_code %}&middot; <a href="/country/{{ slug_of[detail.covered_code] }}">{{ detail.name }}'s own page</a>{% endif %}
+        &middot; <a href="/reports?q={{ ('"' ~ detail.name ~ '"') | urlencode }}">search the reports</a>
+        &middot; <a href="/network?focus={{ detail.name | urlencode }}">in the network</a>
+    </p>
+    <div class="range-links" role="navigation" aria-label="Time range">
+        {% for n in windows %}
+        {% if n == days %}<span aria-current="true">{{ n }} days</span>{% else %}<a href="{{ url_for('entity_page', name=detail.name, days=n) }}">{{ n }} days</a>{% endif %}
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card">
+    <h3>Mentions per day</h3>
+    {% if timeline_top %}
+    <svg class="timeline" viewBox="0 0 {{ detail.timeline | length * 6 }} 60" preserveAspectRatio="none" role="img"
+         aria-label="Mentions per day from {{ detail.start.strftime('%d %b') }} to {{ detail.end.strftime('%d %b') }}, at most {{ timeline_top }} a day">
+        {% for v in detail.timeline %}{% if v %}<rect x="{{ loop.index0 * 6 + 0.5 }}" width="5" y="{{ 60 - 58 * v / timeline_top }}" height="{{ 58 * v / timeline_top }}"><title>{{ (detail.start + timedelta(days=loop.index0)).strftime('%d %b') }}: {{ v }}</title></rect>{% endif %}{% endfor %}
+    </svg>
+    <div class="timeline-axis"><span>{{ detail.start.strftime('%d %b') }}</span><span>most in a day: {{ timeline_top }}</span><span>{{ detail.end.strftime('%d %b') }}</span></div>
+    {% else %}
+    <p class="text-secondary">No mentions in this window.</p>
+    {% endif %}
+</div>
+
+<div class="entity-layout">
+<div>
+    <div class="card">
+        <h3>Signals that name it{% if detail.signal_count > detail.signals | length %} <small class="text-secondary">(newest {{ detail.signals | length }} of {{ detail.signal_count }})</small>{% endif %}</h3>
+        {% if detail.signals %}
+        <ul class="entity-signals">
+            {% for s in detail.signals %}
+            <li>
+                <span title="{{ s.summary or '' }}">{{ s.title }}</span>
+                <div class="meta">
+                    {% if s.report %}{{ report_link(s.report, label=s.date ~ ' ' ~ (s.country)) }}{% else %}{{ s.date }} {{ s.country }}{% endif %}
+                    &middot; {{ s.category | replace('_', ' ') }}{% if s.impact is not none %} &middot; impact {{ s.impact }}{% endif %}{% if s.bias %} &middot; {{ s.bias }}{% endif %}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-secondary">None in this window.</p>
+        {% endif %}
+    </div>
+</div>
+<div>
+    <div class="card">
+        <h3>Whose reports mention it</h3>
+        {% if detail.by_country %}
+        {% set most = detail.by_country[0].reports %}
+        <ul class="bar-list">
+            {% for c in detail.by_country %}
+            <li>{% if c.code in slug_of %}<a href="/country/{{ slug_of[c.code] }}">{{ c.name }}</a>{% else %}{{ c.name }}{% endif %}
+                <span class="bar"><span style="width: {{ 100 * c.reports / most }}%"></span></span><span class="num">{{ c.reports }}</span></li>
+            {% endfor %}
+        </ul>
+        {% else %}<p class="text-secondary">None in this window.</p>{% endif %}
+    </div>
+    <div class="card">
+        <h3>Mentioned with</h3>
+        {% if detail.related %}
+        <ul class="chip-list">
+            {% for r in detail.related %}
+            <li><a href="{{ url_for('entity_page', name=r.name, days=days) }}" title="{{ r.reports }} reports together">{{ r.name }} <span class="text-secondary">{{ r.reports }}</span></a></li>
+            {% endfor %}
+        </ul>
+        {% else %}<p class="text-secondary">Nothing else in the same reports.</p>{% endif %}
+    </div>
+    <div class="card">
+        <h3>Reports</h3>
+        <ul class="today-list">
+            {% for r in detail.reports[:15] %}
+            <li>{% if r.report %}{{ report_link(r.report, label=r.date ~ ' · ' ~ r.country) }}{% else %}{{ r.date }} · {{ r.country }}{% endif %}
+                <small class="text-secondary">{{ r.mentions }} signal{{ '' if r.mentions == 1 else 's' }}{% if r.tags %} · {{ r.tags | join(', ') }}{% endif %}</small></li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+</div>
+{% endif %}
+{% endblock %}

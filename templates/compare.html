@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% from "_macros.html" import report_link %}
+
+{% block title %}{{ names[a] }} and {{ names[b] }} - OpenClaw Reports UI{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Compare</h2>
+    <form method="get" class="compare-form">
+        <label>Country <select name="a">{% for c in codes %}<option value="{{ c }}"{% if c == a %} selected{% endif %}>{{ names[c] }}</option>{% endfor %}</select></label>
+        <label>with <select name="b">{% for c in codes %}<option value="{{ c }}"{% if c == b %} selected{% endif %}>{{ names[c] }}</option>{% endfor %}</select></label>
+        <label>over <select name="days">{% for n in (7, 14, 30, 90) %}<option value="{{ n }}"{% if n == days %} selected{% endif %}>{{ n }} days</option>{% endfor %}</select></label>
+        <button type="submit" class="btn-small">Compare</button>
+        <a href="{{ url_for('compare_page', a=b, b=a, days=days) }}">Swap</a>
+    </form>
+    {% if error %}<div class="alert alert-error">The database could not be read: {{ error }}</div>{% endif %}
+</div>
+
+{% if sides | length == 2 %}
+<div class="card">
+    <h3>Risk, last 90 days</h3>
+    {% if chart.lines[0].points or chart.lines[1].points %}
+    <svg class="pair-chart" viewBox="0 0 {{ chart.width }} {{ chart.height }}" preserveAspectRatio="none" role="img"
+         aria-label="Risk scores of {{ names[a] }} and {{ names[b] }} from {{ chart.first.strftime('%d %b') }} to {{ chart.last.strftime('%d %b') }}">
+        {% for gy in chart.grid %}<line class="axis" x1="0" x2="{{ chart.width }}" y1="{{ gy }}" y2="{{ gy }}" stroke-dasharray="2 4"/>{% endfor %}
+        {% for line in chart.lines %}
+        {% set side = loop.index %}
+        {% if line.points | length > 1 %}<polyline class="line side-{{ side }}" points="{{ line.path }}"/>{% endif %}
+        {% for px, py, day, score in line.points %}<line class="dot side-{{ side }}" x1="{{ px }}" x2="{{ px }}" y1="{{ py }}" y2="{{ py }}"><title>{{ line.name }}, {{ day.strftime('%d %b') }}: {{ score }}</title></line>{% endfor %}
+        {% endfor %}
+    </svg>
+    <p class="chart-note"><span class="key side-1"></span> {{ names[a] }} &nbsp; <span class="key side-2"></span> {{ names[b] }} &middot;
+        {{ chart.first.strftime('%d %b') }} to {{ chart.last.strftime('%d %b %Y') }}; days without a score are skipped.</p>
+    {% else %}
+    <p class="text-secondary">Neither has a risk score in this period.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3>Between them, over {{ days if days <= 60 else 60 }} days</h3>
+    {% if a == b %}
+    <p class="text-secondary">Pick two different countries.</p>
+    {% elif link %}
+    <ul class="today-list">
+        {% if link.ab %}<li>{{ link.ab }} mention{{ '' if link.ab == 1 else 's' }} of {{ names[link.b] }} in {{ names[link.a] }}'s reports</li>{% endif %}
+        {% if link.ba %}<li>{{ link.ba }} mention{{ '' if link.ba == 1 else 's' }} of {{ names[link.a] }} in {{ names[link.b] }}'s reports</li>{% endif %}
+        {% if link.sources %}<li>{{ link.sources }} source{{ '' if link.sources == 1 else 's' }} cited by both</li>{% endif %}
+        {% if link.entities %}<li>Both mention {{ link.entities | join(', ') }}</li>{% endif %}
+    </ul>
+    <p><a href="/geographic?link={{ link.a }}-{{ link.b }}&amp;window={{ 14 if days > 7 else 7 }}">The evidence, on the map</a></p>
+    {% else %}
+    <p class="text-secondary">Their reports share little in this window (no link strong enough to show on the map).</p>
+    {% endif %}
+</div>
+
+<div class="compare-grid">
+    {% for side in sides %}
+    <div class="card side-card side-{{ loop.index }}">
+        <h3><a href="/country/{{ side.slug }}">{{ side.name }}</a></h3>
+        {% if side.risk and side.risk.latest %}
+        <p class="country-risk">Risk <strong>{{ side.risk.latest[1] }}</strong>
+            {% if side.risk.change %}<small class="{{ 'text-danger' if side.risk.change > 0 else 'text-success' }}">{{ '%+d' % side.risk.change }}</small>{% endif %}
+            <small class="text-secondary">on {{ side.risk.latest[0].strftime('%d %b') }}</small></p>
+        {% else %}<p class="text-secondary">No recent risk score.</p>{% endif %}
+        {% if side.latest %}<p>Latest: {{ report_link(side.latest, label=side.latest.report_date.strftime('%a %d %b') ~ ' report') }}</p>{% endif %}
+
+        <h4>Signals by category, {{ days }} days</h4>
+        {% set total = side.categories.values() | sum %}
+        {% if total %}
+        <ul class="bar-list">
+            {% for c in categories if side.categories.get(c) %}
+            <li>{{ c | replace('_', ' ') | capitalize }}<span class="bar"><span style="width: {{ 100 * side.categories[c] / total }}%"></span></span><span class="num">{{ side.categories[c] }}</span></li>
+            {% endfor %}
+        </ul>
+        {% else %}<p class="text-secondary">No signals.</p>{% endif %}
+
+        <h4>Mentions most</h4>
+        {% if side.entities %}
+        <ul class="chip-list">
+            {% for e in side.entities %}<li><a href="{{ url_for('entity_page', name=e.name) }}">{{ e.name }} <span class="text-secondary">{{ e.reports }}</span></a></li>{% endfor %}
+        </ul>
+        {% else %}<p class="text-secondary">No entity mentions.</p>{% endif %}
+
+        <h4>Cites most</h4>
+        {% if side.sources %}
+        <ul class="today-list">{% for s in side.sources %}<li>{{ s.domain }} <small class="text-secondary">{{ s.citations }}</small></li>{% endfor %}</ul>
+        {% else %}<p class="text-secondary">No sources.</p>{% endif %}
+    </div>
+    {% endfor %}
+</div>
+
+{% if shared %}
+<div class="card">
+    <h3>Both mention</h3>
+    <ul class="chip-list">
+        {% for left, right in shared %}<li><a href="{{ url_for('entity_page', name=left.name) }}">{{ left.name }} <span class="text-secondary">{{ left.reports }} / {{ right.reports }}</span></a></li>{% endfor %}
+    </ul>
+    <p class="chart-note">Numbers: reports from {{ names[a] }} / from {{ names[b] }} that mention it.</p>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}
