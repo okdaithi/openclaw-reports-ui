@@ -290,6 +290,20 @@ systemctl --user daemon-reload
 systemctl --user enable --now openclaw-reports-ui.service
 ```
 
+### Updating after a merge
+
+```bash
+~/openclaw-reports-ui/deploy/deploy.sh            # --restart to restart even with nothing new
+```
+
+It fetches the latest `main`, lists the merged pull requests it brings in,
+installs Python packages only if `requirements.txt` changed, restarts the unit,
+waits for `/healthz` and loads the main pages. It ends with one line:
+**SUCCESS**, **PROBLEM** (with the app's recent log and the command to go back
+to the previous version) or **NOT DEPLOYED** (nothing was changed, and why:
+files edited by hand on the server, GitHub unreachable, or local commits).
+Exit status 0 or 1, so it can be scripted.
+
 ## Known limitations / good first issues
 
 - **The index lives in memory.** The reports folder is re-scanned at most every
