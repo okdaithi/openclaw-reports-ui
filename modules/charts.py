@@ -87,6 +87,8 @@ def risk_trends(connect: Callable[[], sqlite3.Connection], days: Optional[int],
             'name': COUNTRY_NAMES.get(country, country),
             'points': points,
             'path': ' '.join(f'{px},{py}' for px, py, _, _ in points),
+            # [date, score] pairs, for the Charts page's day slider
+            'series': [[day.isoformat(), score] for day, score in series],
             'latest': latest,
             'change': latest[1] - previous[1] if latest and previous else None,
             'unscored': unscored[country],
@@ -101,6 +103,7 @@ def risk_trends(connect: Callable[[], sqlite3.Connection], days: Optional[int],
         'width': WIDTH,
         'height': HEIGHT,
         'grid': [y(level) for level in (25, 50, 75)],
+        'pad': PAD,
     }
 
 
@@ -166,6 +169,33 @@ def signal_grid(connect: Callable[[], sqlite3.Connection],
         'latest': latest,
         'end': end,
     }
+
+
+def signal_days(connect: Callable[[], sqlite3.Connection], end: Optional[date] = None,
+                days: int = 90) -> Dict:
+    """Signal counts per category for each of `days` days up to `end`, as
+    [count, impact sum, scored, negative, positive] per cell, for the
+    Charts page to slide its 7-day grid through without reloading"""
+    end = end or date.today()
+    start = end - timedelta(days=days - 1)
+    conn = connect()
+    try:
+        rows = conn.execute(
+            '''SELECT s.category, substr(r.report_date, 1, 10), COUNT(*),
+                      SUM(s.impact_score), COUNT(s.impact_score),
+                      SUM(s.directional_bias = 'negative'), SUM(s.directional_bias = 'positive')
+               FROM signals s JOIN reports r ON s.report_id = r.id
+               WHERE substr(r.report_date, 1, 10) BETWEEN ? AND ?
+               GROUP BY 1, 2''', (start.isoformat(), end.isoformat())).fetchall()
+    finally:
+        conn.close()
+    day_list = [(start + timedelta(days=n)).isoformat() for n in range(days)]
+    index = {d: n for n, d in enumerate(day_list)}
+    cells = {category: [None] * days for category in CATEGORIES}
+    for category, day, count, impact, scored, negative, positive in rows:
+        if category in cells and day in index:
+            cells[category][index[day]] = [count, impact or 0, scored, negative or 0, positive or 0]
+    return {'days': day_list, 'categories': list(CATEGORIES), 'cells': cells}
 
 
 def heatmap_view(connect: Callable[[], sqlite3.Connection]) -> List[Dict]:

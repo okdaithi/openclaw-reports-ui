@@ -98,12 +98,14 @@ def timeline(connect: Callable[[], sqlite3.Connection], reports: Iterable[Dict],
 
 
 def top_signals(connect: Callable[[], sqlite3.Connection], code: str, end: date,
-                days: int = 7, limit: int = 12) -> List[Dict]:
+                days: int = 7, limit: int = 12, category: Optional[str] = None) -> List[Dict]:
     """A country's signals over the `days` up to `end`: highest impact first,
-    then the newest"""
+    then the newest; only one category's when `category` is given"""
     codes = [code] + [old for old, new in _SAME_COUNTRY.items() if new == code]
     start = (end - timedelta(days=days - 1)).isoformat()
     marks = ','.join('?' * len(codes))
+    only = 'AND s.category = ?' if category else ''
+    extra = (category,) if category else ()
     conn = connect()
     try:
         rows = conn.execute(
@@ -111,9 +113,9 @@ def top_signals(connect: Callable[[], sqlite3.Connection], code: str, end: date,
                        s.impact_score, s.directional_bias
                 FROM signals s JOIN reports r ON r.id = s.report_id
                 WHERE r.country IN ({marks})
-                  AND substr(r.report_date, 1, 10) BETWEEN ? AND ?
+                  AND substr(r.report_date, 1, 10) BETWEEN ? AND ? {only}
                 ORDER BY s.impact_score IS NULL, s.impact_score DESC, r.report_date DESC, s.id
-                LIMIT ?''', (*codes, start, end.isoformat(), limit)).fetchall()
+                LIMIT ?''', (*codes, start, end.isoformat(), *extra, limit)).fetchall()
     finally:
         conn.close()
     return [{'date': d, 'category': category, 'title': title, 'summary': summary,

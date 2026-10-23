@@ -9,6 +9,16 @@
     <div class="alert alert-error"><strong>The database could not be read:</strong> {{ error }}</div>
 </div>
 {% else %}
+{# Day slider (charts.js): moves a marker through the risk charts and the
+   signal grid's 7 days; hidden until the script runs #}
+<div class="card chart-time" id="chart-time" hidden data-end="{{ signals.end.isoformat() }}"
+     data-api="{{ url_for('api_chart_signals') }}" data-range="{{ risk_range }}">
+    <button type="button" class="btn-small" id="chart-play" aria-pressed="false" aria-label="Play through the days">&#9654;</button>
+    <input type="range" id="chart-day" min="0" max="0" value="0" aria-label="Day">
+    <output id="chart-day-label" for="chart-day"></output>
+    <button type="button" class="btn-small" id="chart-today">Today</button>
+    <small class="text-secondary">Moves through the risk charts and the signal grid; [ and ] step a day.</small>
+</div>
 <div class="card">
     <h2>Country risk over time</h2>
     <p class="text-secondary">
@@ -27,7 +37,9 @@
     </p>
     {% endif %}
 
-    <div class="chart-grid" style="margin-top: 1rem;">
+    <div class="chart-grid" style="margin-top: 1rem;" id="risk-grid"
+         data-first="{{ risk.first.isoformat() }}" data-last="{{ risk.last.isoformat() }}"
+         data-width="{{ risk.width }}" data-pad="{{ risk.pad }}">
         {% for chart in risk.charts %}
         {% if chart.code in country_slugs %}<a class="chart-link" href="/country/{{ country_slugs[chart.code] }}">{{ risk_chart(chart, risk) }}</a>{% else %}{{ risk_chart(chart, risk) }}{% endif %}
         {% endfor %}
@@ -37,11 +49,11 @@
 <div class="card">
     <h2>Signals by category, 7 days</h2>
     <p class="text-secondary">
-        Signals from reports dated {{ signals.days[0].strftime('%d %b') }} to {{ signals.days[-1].strftime('%d %b %Y') }};
+        Signals from reports dated <span id="grid-range">{{ signals.days[0].strftime('%d %b') }} to {{ signals.days[-1].strftime('%d %b %Y') }}</span>;
         darker means more signals. Hover a cell for its average impact.
     </p>
     {% if not signals.total %}
-    <p class="alert alert-info" style="margin-top: 0.75rem;">
+    <p class="alert alert-info" style="margin-top: 0.75rem;" id="grid-empty">
         No signals in these 7 days.
         {% if signals.latest %}
         The latest signal is from {{ signals.latest.strftime('%d %b %Y') }}:
@@ -51,16 +63,15 @@
         {% endif %}
     </p>
     {% endif %}
-    {% if signals.total %}
-    <div class="table-scroll">
+    <div class="table-scroll" id="grid"{% if not signals.total %} hidden{% endif %}>
     <table class="heat">
         <thead>
-            <tr>
+            <tr id="grid-head">
                 <th>Category</th>
                 {% for day in signals.days %}<th class="nowrap">{{ day.strftime('%a %d') }}</th>{% endfor %}
             </tr>
         </thead>
-        <tbody>
+        <tbody id="grid-body">
             {% for category, row in signals.grid %}
             <tr>
                 <th>{{ category | replace('_', ' ') | capitalize }}</th>
@@ -77,7 +88,6 @@
         </tbody>
     </table>
     </div>
-    {% endif %}
     {% if request.args.get('end') %}
     <p style="margin-top: 0.75rem;"><a href="{{ url_for('charts_page', range=risk_range) }}">Back to the last 7 days</a></p>
     {% endif %}
@@ -108,4 +118,8 @@
     {% endif %}
 </details>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
 {% endblock %}
