@@ -57,6 +57,26 @@
     .geo-zoom .geo-btn { width: 2rem; padding: 0.15rem 0; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
     .geo-regions { position: absolute; top: 0.5rem; left: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.25rem; max-width: calc(100% - 4rem); }
     .geo-regions .geo-btn { font-size: 0.8rem; padding: 0.1rem 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+    /* Connections between countries */
+    .geo-links .arc { fill: none; stroke: var(--geo-link); stroke-linecap: round; opacity: 0.5; vector-effect: non-scaling-stroke; transition: opacity 0.2s; }
+    .geo-links .hit { fill: none; stroke: transparent; stroke-width: 12px; vector-effect: non-scaling-stroke; pointer-events: stroke; cursor: pointer; }
+    .geo-links .link:hover .arc, .geo-links .link.hover .arc, .geo-links .link.active .arc { opacity: 0.95; }
+    .geo-links .link.dim .arc { opacity: 0.1; }
+    .geo-links.hidden { display: none; }
+    .geo-glyphs .seg { cursor: pointer; transition: opacity 0.2s; }
+    .geo-glyphs .seg:hover { filter: brightness(1.15); }
+    .geo-glyphs .seg.faded { opacity: 0.2; }
+    .geo-cats .geo-cat-seg { border: 0; padding: 0; height: 100%; cursor: pointer; border-radius: 0; }
+    .geo-cats .geo-cat-seg.faded { opacity: 0.25; }
+    .geo-filter {
+        background: none; border: 1px solid transparent; border-radius: 10px; padding: 0.05rem 0.45rem;
+        color: var(--text-primary); cursor: pointer; font-size: 0.8rem;
+    }
+    .geo-filter:hover { border-color: var(--border-color); }
+    .geo-filter[aria-pressed="true"] { background: var(--bg-tertiary); border-color: var(--border-color); font-weight: 600; }
+    .geo-subhead { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); margin: 1rem 0 0.35rem; }
+    .geo-link-btn { background: none; border: 0; padding: 0; color: var(--accent-primary); cursor: pointer; font: inherit; }
+    .geo-link-btn:hover { text-decoration: underline; }
     .geo-hint {
         position: absolute; left: 50%; bottom: 3.25rem; transform: translateX(-50%); background: rgba(0,0,0,0.75);
         color: white; padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.85rem; pointer-events: none;
@@ -120,8 +140,8 @@
     .geo-signals .meta { font-size: 0.75rem; color: var(--text-secondary); }
     .geo-links { list-style: none; display: grid; gap: 0.3rem; }
     .geo-error { padding: 1rem; }
-    :root { --geo-sea: #dfeaf3; --geo-land: #d6d9dc; --geo-border: #ffffff; --geo-neutral: #ececec; --geo-low: #eef3fa; }
-    [data-theme="dark"] { --geo-sea: #16212b; --geo-land: #3b4148; --geo-border: #23282e; --geo-neutral: #5d636b; --geo-low: #23364a; }
+    :root { --geo-sea: #dfeaf3; --geo-land: #d6d9dc; --geo-border: #ffffff; --geo-neutral: #ececec; --geo-low: #eef3fa; --geo-link: #6a3d9a; }
+    [data-theme="dark"] { --geo-sea: #16212b; --geo-land: #3b4148; --geo-border: #23282e; --geo-neutral: #5d636b; --geo-low: #23364a; --geo-link: #d2a8ff; }
 </style>
 {% endblock %}
 
@@ -129,7 +149,7 @@
 <div id="geo" data-world="{{ url_for('static', filename='geo/world.json') }}" data-api="{{ url_for('api_geo') }}">
 <div class="card geo-controls">
     <h2>Geographic</h2>
-    <p class="text-secondary">Risk and signals by country. Click a country for its signals and reports; move through time with the slider or play it.</p>
+    <p class="text-secondary">Risk and signals by country, and the links between them. Click a country, a ring segment or an arc for the detail; move through time with the slider or play it.</p>
     <div class="geo-group" role="radiogroup" aria-label="Colour countries by">
         <span class="geo-label">Colour by</span>
         <span class="segmented">
@@ -147,6 +167,7 @@
             <option value="14">14 days</option>
         </select>
         <label style="font-weight: normal;"><input type="checkbox" id="geo-glyphs" checked> signal rings</label>
+        <label style="font-weight: normal;"><input type="checkbox" id="geo-links" checked> connections</label>
     </div>
     <div class="geo-group geo-time">
         <button type="button" class="geo-btn" id="geo-play" aria-pressed="false" aria-label="Play through the days">&#9654;</button>

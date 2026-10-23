@@ -4,7 +4,7 @@
     <h4>
         <span>{{ title if title is not none else chart.name }}</span>
         {% if chart.latest %}
-        <span>
+        <span class="chart-value">
             {{ chart.latest[1] }}
             {% if chart.change is not none and chart.change != 0 %}
             <small class="{{ 'text-danger' if chart.change > 0 else 'text-success' }}">{{ '%+d' % chart.change }}</small>
@@ -13,7 +13,7 @@
         {% endif %}
     </h4>
     {% if chart.points %}
-    <svg viewBox="0 0 {{ risk.width }} {{ risk.height }}" role="img"
+    <svg viewBox="0 0 {{ risk.width }} {{ risk.height }}" role="img" data-scores='{{ chart.series | tojson }}'
          aria-label="{{ chart.name }}: {{ chart.points | length }} scores, latest {{ chart.latest[1] }} on {{ chart.latest[0].strftime('%d %b') }}">
         {% for gy in risk.grid %}<line class="axis" x1="0" x2="{{ risk.width }}" y1="{{ gy }}" y2="{{ gy }}" stroke-dasharray="2 4"/>{% endfor %}
         <line class="axis" x1="0" x2="{{ risk.width }}" y1="{{ risk.height - 4 }}" y2="{{ risk.height - 4 }}"/>

@@ -12,6 +12,7 @@ from pathlib import Path
 from flask import Flask, Response, render_template, request, jsonify, abort, redirect, url_for
 from modules import charts
 from modules import countries
+from modules import connections
 from modules import geo
 from modules import pipeline
 from modules.changes import compare, points
@@ -626,10 +627,67 @@ def api_geo_signals(code):
         abort(404)
     end = charts.as_date(request.args.get('end', '')) or date.today()
     days = max(1, min(request.args.get('days', 7, type=int), 60))
+    category = request.args.get('category') or None
+    if category is not None and category not in charts.CATEGORIES:
+        abort(400)
     try:
-        return jsonify({'signals': geo.top_signals(db_browser._connect, code, end, days)})
+        return jsonify({'signals': geo.top_signals(db_browser._connect, code, end, days, category=category)})
     except sqlite3.Error as exc:
         return jsonify({'error': str(exc)}), 503
+
+
+@app.route('/api/geo/links')
+def api_geo_links():
+    """Pairs of countries linked by what their reports share (modules/connections.py)"""
+    end = charts.as_date(request.args.get('end', '')) or date.today()
+    days = request.args.get('days', 7, type=int)
+    try:
+        return jsonify(_cached(('links', end, days), lambda: connections.links(db_browser._connect, end, days)))
+    except sqlite3.Error as exc:
+        return jsonify({'error': str(exc)}), 503
+
+
+@app.route('/api/geo/links/<a>/<b>')
+def api_geo_link(a, b):
+    """The signals, sources and entities behind one link"""
+    if a not in countries.COUNTRIES or b not in countries.COUNTRIES or a == b:
+        abort(404)
+    end = charts.as_date(request.args.get('end', '')) or date.today()
+    days = request.args.get('days', 7, type=int)
+    try:
+        return jsonify(connections.evidence(db_browser._connect, a, b, end, days))
+    except sqlite3.Error as exc:
+        return jsonify({'error': str(exc)}), 503
+
+
+@app.route('/api/charts/signals')
+def api_chart_signals():
+    """Signals per category and day, for the Charts page's day slider"""
+    end = charts.as_date(request.args.get('end', '')) or date.today()
+    days = max(1, min(request.args.get('days', 90, type=int), 800))
+    try:
+        return jsonify(charts.signal_days(db_browser._connect, end=end, days=days))
+    except sqlite3.Error as exc:
+        return jsonify({'error': str(exc)}), 503
+
+
+# Answers that depend only on the database: kept until it changes
+_answers = {}
+
+
+def _cached(key, compute):
+    try:
+        stamp = os.stat(db_browser.db_path).st_mtime_ns
+    except OSError:
+        stamp = None
+    entry = _answers.get(key)
+    if entry and entry[0] == stamp:
+        return entry[1]
+    if len(_answers) > 200:
+        _answers.clear()
+    value = compute()
+    _answers[key] = (stamp, value)
+    return value
 
 
 @app.route('/api/search')

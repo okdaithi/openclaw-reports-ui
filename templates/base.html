@@ -636,6 +636,13 @@
         .chart .line { fill: none; stroke: var(--accent-primary); stroke-width: 2; }
         .chart .dot { fill: var(--accent-primary); }
         .chart-note { font-size: 0.8rem; color: var(--text-secondary); }
+        /* Charts page day slider */
+        .chart-time:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; position: sticky; top: calc(var(--header-height, 4rem) + 0.5rem); z-index: 3; }
+        .chart-time input[type=range] { flex: 1 1 200px; padding: 0; }
+        .chart-time output { font-weight: 600; min-width: 8.5rem; font-variant-numeric: tabular-nums; }
+        .chart .future { fill: var(--bg-secondary); opacity: 0.65; }
+        .chart .cursor { stroke: var(--text-secondary); stroke-width: 1; stroke-dasharray: 3 2; }
+        .chart .dot.later { opacity: 0.25; }
         .range-links { display: flex; gap: 0.5rem; flex-wrap: wrap; }
         .range-links a, .range-links span { padding: 0.25rem 0.75rem; border: 1px solid var(--border-color); border-radius: 999px; font-size: 0.85rem; }
         .range-links span { background: var(--accent-primary); color: white; border-color: var(--accent-primary); }
