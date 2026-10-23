@@ -122,7 +122,7 @@ def signal_grid(connect: Callable[[], sqlite3.Connection],
     finally:
         conn.close()
 
-    cells = defaultdict(lambda: {'count': 0, 'impact': 0, 'negative': 0, 'positive': 0})
+    cells = defaultdict(lambda: {'count': 0, 'impact': 0, 'scored': 0, 'negative': 0, 'positive': 0})
     latest = None
     for category, raw_date, impact, bias in rows:
         day = as_date(raw_date)
@@ -133,7 +133,9 @@ def signal_grid(connect: Callable[[], sqlite3.Connection],
             continue
         cell = cells[(category, day)]
         cell['count'] += 1
-        cell['impact'] += impact or 0
+        if impact is not None:
+            cell['impact'] += impact
+            cell['scored'] += 1
         cell['negative'] += bias == 'negative'
         cell['positive'] += bias == 'positive'
 
@@ -147,7 +149,9 @@ def signal_grid(connect: Callable[[], sqlite3.Connection],
             if cell:
                 row.append({
                     'count': cell['count'],
-                    'avg_impact': round(cell['impact'] / cell['count']),
+                    # None when no signal has an impact score (section-derived ones don't)
+                    'avg_impact': round(cell['impact'] / cell['scored']) if cell['scored'] else None,
+                    'scored': cell['scored'],
                     'negative': cell['negative'],
                     'positive': cell['positive'],
                     'shade': round(0.15 + 0.85 * cell['count'] / most, 2),

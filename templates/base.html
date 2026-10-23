@@ -339,6 +339,14 @@
         .badge-warning { background: var(--warning); }
         .badge-danger { background: var(--danger); }
         .badge-info { background: var(--info); }
+        .badge-secondary { background: var(--text-secondary); }
+
+        /* Pipeline */
+        .pipeline-table td, .pipeline-table th { vertical-align: top; }
+        .pipeline-table .num, table .num { text-align: right; }
+        .pipeline-table small { display: block; }
+        .pipeline-table tr.state-late td { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+        .pipeline-table tr.state-empty td { background: color-mix(in srgb, var(--warning) 10%, transparent); }
         
         /* Pagination */
         .pagination {
@@ -758,6 +766,7 @@
                 <a href="/reports" {% if path.startswith('/reports') %}class="active" aria-current="page"{% endif %}>Reports</a>
                 <a href="/countries" {% if path.startswith('/countr') %}class="active" aria-current="page"{% endif %}>Countries</a>
                 <a href="/charts" {% if path.startswith('/charts') %}class="active" aria-current="page"{% endif %}>Charts</a>
+                <a href="/pipeline" {% if path.startswith('/pipeline') %}class="active" aria-current="page"{% endif %}>Pipeline</a>
                 <a href="/database" {% if path.startswith('/database') and not path.startswith('/database/query') %}class="active" aria-current="page"{% endif %}>Database</a>
                 <a href="/database/query" {% if path.startswith('/database/query') %}class="active" aria-current="page"{% endif %}>Query</a>
             </nav>

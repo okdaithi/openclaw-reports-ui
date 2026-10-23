@@ -67,7 +67,7 @@
                 {% for cell in row %}
                 {% if cell %}
                 <td class="cell"><span style="background: rgba(52, 152, 219, {{ cell.shade }}); color: {{ 'white' if cell.shade > 0.5 else 'inherit' }};"
-                    title="{{ cell.count }} signals, average impact {{ cell.avg_impact }}; {{ cell.negative }} negative, {{ cell.positive }} positive">{{ cell.count }}</span></td>
+                    title="{{ cell.count }} signal{{ '' if cell.count == 1 else 's' }}; {% if cell.avg_impact is none %}no impact scores{% else %}average impact {{ cell.avg_impact }}{% if cell.scored < cell.count %} ({{ cell.scored }} scored){% endif %}{% endif %}; {{ cell.negative }} negative, {{ cell.positive }} positive">{{ cell.count }}</span></td>
                 {% else %}
                 <td class="empty">·</td>
                 {% endif %}

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Pipeline - OpenClaw Reports UI{% endblock %}
+
+{% set state_badge = {'ok': ('success', 'OK'), 'partial': ('info', 'Gaps'), 'empty': ('warning', 'Empty'),
+                      'late': ('danger', 'Late'), 'waiting': ('secondary', 'Not due yet')} %}
+
+{% macro when(moment, day) -%}
+{%- if moment -%}{{ moment.strftime('%H:%M') }}{% if moment.date() != day %} <small class="text-secondary">{{ moment.strftime('%d %b') }}</small>{% endif %}{%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+<div class="card">
+    <h2>Pipeline, {{ summary.day.strftime('%a %d %b %Y') }}</h2>
+    <p class="text-secondary">
+        Which reports arrived, and whether the country reports loaded into the database with a risk score, signals and sources.
+        A report is expected when it arrived on {{ min_seen }} of the last {{ weeks }} {{ summary.day.strftime('%A') }}s, due {{ grace_hours }} hours after the time it usually came.
+    </p>
+    <p>
+        {% for state in ('late', 'empty', 'partial', 'waiting', 'ok') if summary.counts[state] %}
+        <span class="badge badge-{{ state_badge[state][0] }}">{{ summary.counts[state] }} {{ state_badge[state][1] | lower }}</span>
+        {% endfor %}
+        <span class="text-secondary">&middot; loader {{ loader or 'version unknown' }}
+        {% if summary.last_load %}&middot; last load {{ summary.last_load.strftime('%d %b %H:%M') }}{% endif %}</span>
+    </p>
+    {% if error %}<div class="alert alert-error" style="margin-top: 0.75rem;">Database unavailable: {{ error }}</div>{% endif %}
+</div>
+
+<div class="card">
+    <div class="table-scroll">
+    <table class="pipeline-table">
+        <thead>
+            <tr>
+                <th>Report</th><th>Status</th><th>Due by</th><th>File</th><th>Database</th>
+                <th class="num">Risk</th><th class="num">Signals</th><th class="num">Sources</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for line in summary.lines %}
+            {% set row = line.row %}
+            <tr class="state-{{ line.state }}">
+                <td>
+                    {% if line.series in series_slugs %}<a href="/country/{{ series_slugs[line.series] }}">{{ label(line.series) }}</a>
+                    {% else %}{{ label(line.series) }}{% endif %}
+                    {% if not line.expected %}<small class="text-secondary">(unscheduled)</small>{% endif %}
+                </td>
+                <td>
+                    <span class="badge badge-{{ state_badge[line.state][0] }}">{{ state_badge[line.state][1] }}</span>
+                    {% if line.late %}<small>{{ line.late | join(' and ') }} not in</small>{% endif %}
+                    {% if line.issues %}<small class="text-secondary">{{ line.issues | join(', ') }}</small>{% endif %}
+                </td>
+                <td class="nowrap">{{ when(line.due, summary.day) or '–' }}</td>
+                <td class="nowrap">{{ when(line.file_at, summary.day) or ('missing' if 'file' in line.late else '–') }}</td>
+                <td class="nowrap">
+                    {% if row %}{{ when(row.loaded, summary.day) }}
+                    {% elif 'database row' in line.late %}missing
+                    {% elif line.is_country %}–
+                    {% else %}<small class="text-secondary">not loaded</small>{% endif %}
+                </td>
+                <td class="num">{% if row %}{{ row.risk if row.risk is not none else '–' }}{% endif %}</td>
+                <td class="num">{% if row %}{{ row.signals }}{% endif %}</td>
+                <td class="num">{% if row %}{{ row.sources }}{% endif %}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8">Nothing expected or arrived on this day.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    <p class="text-secondary" style="margin-top: 0.75rem;"><small>
+        Empty: loaded without signals. Gaps: loaded, but without a risk score or sources, or with a signal count that doesn't match.
+        Daily briefs, digests and summaries are files only; the database holds country reports.
+    </small></p>
+</div>
+
+<div class="card">
+    <h3>Days before</h3>
+    <div class="table-scroll">
+    <table>
+        <thead><tr><th>Day</th><th class="num">Expected</th><th class="num">Arrived</th><th>Late</th><th>Empty</th><th class="num">With gaps</th></tr></thead>
+        <tbody>
+            {% for past in summary.history %}
+            <tr>
+                <td class="nowrap"><a href="{{ url_for('pipeline_page', date=past.day.isoformat()) }}">{{ past.day.strftime('%a %d %b') }}</a></td>
+                <td class="num">{{ past.expected }}</td>
+                <td class="num">{{ past.arrived }}</td>
+                <td>{% for series in past.late %}<span class="badge badge-danger">{{ label(series) }}</span> {% endfor %}</td>
+                <td>{% for series in past.empty %}<span class="badge badge-warning">{{ label(series) }}</span> {% endfor %}</td>
+                <td class="num">{{ past.partial }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% if summary.day != today %}
+    <p style="margin-top: 0.75rem;"><a href="{{ url_for('pipeline_page') }}">Back to today</a></p>
+    {% endif %}
+</div>
+{% endblock %}
