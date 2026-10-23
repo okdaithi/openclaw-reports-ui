@@ -312,7 +312,12 @@ Exit status 0 or 1, so it can be scripted.
   **Refresh Index** forces a re-scan.
 - **CI** (GitHub Actions) runs pyflakes and the tests on every push and pull
   request. Locally: `pip install pytest pyflakes` in the venv, then
-  `python -m pytest tests`.
+  `python -m pytest tests`. A second CI job runs `tests/browser` (menus,
+  palette, contents bar, map, sliders, phone widths) in headless Chromium;
+  locally: `pip install playwright`, then
+  `RUN_BROWSER_TESTS=1 python -m pytest tests/browser` (after
+  `playwright install chromium`, or with `CHROMIUM_PATH` pointing at a
+  Chromium already on the machine).
 - **No authentication** — every route is anonymous. This is a deliberate
   consequence of the original loopback-or-tailnet deployment; if you bind to a
   shared network, everything is readable by anyone who can reach the port.

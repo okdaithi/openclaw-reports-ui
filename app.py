@@ -7,6 +7,7 @@ import csv
 import io
 import os
 import sqlite3
+from urllib.parse import quote
 from datetime import date, timedelta
 from pathlib import Path
 from flask import Flask, Response, render_template, request, jsonify, abort, redirect, url_for
@@ -24,11 +25,16 @@ from modules.db_browser import DatabaseBrowser
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
+# Static files are linked with ?v=<modified time> (asset() below), so a
+# browser may keep them for a week and still sees a new version at once
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 7 * 24 * 3600
 
 MAX_PER_PAGE = 500
 REPORTS_PER_PAGE = 50
 MAX_QUERY_ROWS = 1000      # rows shown on the Query page
 MAX_EXPORT_ROWS = 100_000  # rows in a query's CSV download
+QUERY_SECONDS = 5          # the Query page stops a query after this long
+EXPORT_SECONDS = 30        # and its CSV download after this long
 CONTENTS_MIN_HEADINGS = 3  # fewer headings than this: no contents bar
 RISK_RANGES = {'30': 30, '90': 90, 'all': None}
 DIGEST_POINTS = 4          # new points shown per report in the digest
@@ -70,6 +76,18 @@ db_browser = DatabaseBrowser()
 INSERT_SCRIPT = Path(os.environ.get(
     'OPENCLAW_INSERT_SCRIPT',
     Path(db_browser.db_path).parent / 'scripts' / 'intelligence_db_insert.sh'))
+
+@app.context_processor
+def static_assets():
+    """asset('css/app.css') -> /static/css/app.css?v=<modified time>"""
+    def asset(filename):
+        try:
+            version = int(os.stat(os.path.join(app.static_folder, filename)).st_mtime)
+        except OSError:
+            version = 0
+        return url_for('static', filename=filename, v=version)
+    return {'asset': asset}
+
 
 @app.context_processor
 def shared_names():
@@ -430,7 +448,7 @@ def query_database():
     truncated = False
 
     if query:
-        results, error = db_browser.execute_select(query, max_rows=MAX_QUERY_ROWS)
+        results, error = db_browser.execute_select(query, max_rows=MAX_QUERY_ROWS, time_limit=QUERY_SECONDS)
         truncated = len(results) > MAX_QUERY_ROWS
         results = results[:MAX_QUERY_ROWS]
 
@@ -448,7 +466,7 @@ def query_database():
 def export_query():
     """A query's results as a CSV file"""
     query = request.args.get('query', '')
-    results, error = db_browser.execute_select(query, max_rows=MAX_EXPORT_ROWS)
+    results, error = db_browser.execute_select(query, max_rows=MAX_EXPORT_ROWS, time_limit=EXPORT_SECONDS)
     if error or not query:
         abort(400, error or 'No query')
     columns = list(results[0].keys()) if results else []
@@ -688,6 +706,54 @@ def _cached(key, compute):
     value = compute()
     _answers[key] = (stamp, value)
     return value
+
+
+# The pages the go-to palette (Ctrl+K) offers, in nav order
+PALETTE_PAGES = [('Home', '/'), ('Digest', '/digest'), ('Reports', '/reports'), ('Countries', '/countries'),
+                 ('Geographic', '/geographic'), ('Charts', '/charts'), ('Pipeline', '/pipeline'),
+                 ('Database', '/database'), ('Query', '/database/query')]
+PALETTE_REPORTS = 6
+
+
+@app.route('/api/palette')
+def api_palette():
+    """What the go-to palette lists for the text typed: pages, countries,
+    entities and reports, in that order"""
+    query = request.args.get('q', '').strip()
+    needle = query.casefold()
+    items = [{'kind': 'Page', 'label': label, 'url': url}
+             for label, url in PALETTE_PAGES if not needle or needle in label.casefold()]
+    for country in countries.all_countries():
+        if not needle or needle in country['name'].casefold() or needle == country['code'].casefold():
+            items.append({'kind': 'Country', 'label': country['name'], 'url': f"/country/{country['slug']}"})
+    reports = indexer.refresh()
+    if needle:
+        try:
+            conn = db_browser._connect()
+            try:
+                rows = conn.execute(
+                    """SELECT name, type, total_mentions FROM entities
+                       WHERE total_mentions > 0 AND instr(lower(name), ?) > 0
+                       ORDER BY total_mentions DESC LIMIT 5""", (needle,)).fetchall()
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            rows = []
+        names = {item['label'].casefold() for item in items}
+        for name, kind, mentions in rows:
+            if name.casefold() not in names:
+                items.append({'kind': 'Entity', 'label': name, 'url': url_for('reports', q=f'"{name}"'),
+                              'detail': f'{mentions} mentions'})
+        found = [r for r in indexer.search(query) if r['kind'] == 'report'][:PALETTE_REPORTS] if len(query) > 1 else []
+    else:
+        found = [r for r in reports if r['kind'] == 'report'][:PALETTE_REPORTS]
+    for report in found:
+        items.append({'kind': 'Report', 'label': report['title'] or report['filename'],
+                      'url': f"/reports/{report['safe_id']}" + (f'?q={quote(query)}' if needle else ''),
+                      'detail': report['report_date'].strftime('%d %b') if report['report_date'] else ''})
+    if needle:
+        items.append({'kind': 'Search', 'label': f'Search all reports for "{query}"', 'url': url_for('reports', q=query)})
+    return jsonify({'items': items})
 
 
 @app.route('/api/search')

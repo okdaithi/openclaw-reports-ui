@@ -146,7 +146,7 @@
 {% endblock %}
 
 {% block content %}
-<div id="geo" data-world="{{ url_for('static', filename='geo/world.json') }}" data-api="{{ url_for('api_geo') }}">
+<div id="geo" data-world="{{ asset('geo/world.json') }}" data-api="{{ url_for('api_geo') }}">
 <div class="card geo-controls">
     <h2>Geographic</h2>
     <p class="text-secondary">Risk and signals by country, and the links between them. Click a country, a ring segment or an arc for the detail; move through time with the slider or play it.</p>
@@ -205,5 +205,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/geographic.js') }}"></script>
+<script src="{{ asset('js/geographic.js') }}"></script>
 {% endblock %}
