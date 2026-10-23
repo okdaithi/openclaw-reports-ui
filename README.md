@@ -21,6 +21,18 @@ so other people and agents can reuse and improve it.
 - **Rendered report view** — Markdown → HTML with syntax highlighting, tables,
   fenced code and `nl2br`/`sane_lists` handling; a contents sidebar for reports
   with three or more headings; previous/next report of the same series.
+- **Digest** — one day on one page: the Daily Brief's and Executive Summary's
+  first points, then each report of the day with its points new since the
+  previous report of its series. Earlier days via previous/next.
+- **Countries** — every country with its latest report and risk score; a page
+  per country (`/country/china`) with what is new in its latest report, its
+  risk over 90 days, its signals from the last 14 days and its recent reports.
+- **Watched searches** — save searches on the home page (or "Watch this search"
+  on the results); each shows its matching reports from the last 7 days.
+  `/api/search?q=…&days=7` serves them as JSON.
+- **Read markers** — recent reports you haven't opened are marked in lists.
+  Watched searches and read markers are kept in the browser (localStorage), so
+  each device has its own; nothing is written on the server.
 - **What changed** — a report's new, continuing and dropped points compared
   with the previous report of its series (matched by key words, since reports
   are rewritten daily).

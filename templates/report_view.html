@@ -108,6 +108,8 @@
 
 {% block extra_js %}
 <script>
+    window.markRead({{ report.filename | tojson }});
+
     // Contents start open where they sit beside the report, folded on narrow screens
     (function() {
         var contents = document.getElementById('contents');

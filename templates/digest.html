@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "_macros.html" import report_link %}
+
+{% block title %}Digest {{ day.strftime('%d %b %Y') }} - OpenClaw Reports UI{% endblock %}
+
+{% macro point_list(found) %}
+<ul class="digest-points">
+    {% for section, text in found %}
+    <li>{% if section %}<span class="text-secondary">{{ section }}:</span> {% endif %}{{ text | truncate(320) }}</li>
+    {% endfor %}
+</ul>
+{% endmacro %}
+
+{% block content %}
+<div class="reading-column">
+<div class="card">
+    <h2>Digest <span class="text-secondary today-date">{{ day.strftime('%A %d %B %Y') }}</span></h2>
+    <div class="series-nav" role="navigation" aria-label="Other days" style="margin: 0.75rem 0 0;">
+        {% if previous_day %}<a href="{{ url_for('digest', date=previous_day.isoformat()) }}" rel="prev">‹ {{ previous_day.strftime('%a %d %b') }}</a>{% else %}<span class="text-muted">‹ Earliest</span>{% endif %}
+        {% if day != today %}<a href="{{ url_for('digest') }}">Today</a>{% endif %}
+        {% if next_day %}<a href="{{ url_for('digest', date=next_day.isoformat()) }}" rel="next">{{ next_day.strftime('%a %d %b') }} ›</a>{% else %}<span class="text-muted">Latest ›</span>{% endif %}
+    </div>
+</div>
+
+{% if not brief and not summary and not sections %}
+<div class="card">
+    <p>No reports dated {{ day.strftime('%d %B') }}{% if day == today %} yet{% endif %}.
+    {% if latest_day and latest_day != day %}<a href="{{ url_for('digest', date=latest_day.isoformat()) }}">See {{ latest_day.strftime('%a %d %b') }}</a>.{% endif %}</p>
+</div>
+{% endif %}
+
+{% if brief %}
+<div class="card">
+    <h3>Daily Brief</h3>
+    <p>{{ report_link(brief) }}</p>
+    {{ point_list(brief_points) }}
+</div>
+{% endif %}
+
+{% if summary %}
+<div class="card">
+    <h3>Executive Summary</h3>
+    <p>{{ report_link(summary) }}</p>
+    {{ point_list(summary_points) }}
+</div>
+{% endif %}
+
+{% for item in sections %}
+<div class="card">
+    <h3>
+        {% if item.country %}<a href="/country/{{ item.country.slug }}">{{ item.report.series_label }}</a>{% else %}{{ item.report.series_label }}{% endif %}
+    </h3>
+    <p>
+        {{ report_link(item.report) }}
+        {% if item.previous %}
+        <br><small class="text-secondary">
+            {{ item.added }} new point{{ '' if item.added == 1 else 's' }} since {{ item.previous.report_date.strftime('%a %d %b') }}{% if item.added > item.points | length %}, first {{ item.points | length }} shown{% endif %}
+            &middot; <a href="/reports/{{ item.report.safe_id }}/changes">all changes</a>
+        </small>
+        {% else %}
+        <br><small class="text-secondary">First report of the series</small>
+        {% endif %}
+    </p>
+    {% if item.points %}{{ point_list(item.points) }}{% else %}<p class="text-secondary">Nothing new.</p>{% endif %}
+</div>
+{% endfor %}
+</div>
+{% endblock %}
