@@ -1,0 +1,8 @@
+# Checks the reports site and pipeline and sends a message when they need
+# attention (deploy/alert_check.sh). Started by openclaw-reports-alerts.timer.
+[Unit]
+Description=OpenClaw Reports: alert when a report is late or the site is down
+
+[Service]
+Type=oneshot
+ExecStart=%h/openclaw-reports-ui/deploy/alert_check.sh
