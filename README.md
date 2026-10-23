@@ -304,6 +304,18 @@ to the previous version) or **NOT DEPLOYED** (nothing was changed, and why:
 files edited by hand on the server, GitHub unreachable, or local commits).
 Exit status 0 or 1, so it can be scripted.
 
+### Alerts
+
+`deploy/alert_check.sh`, run every 15 minutes by the user timer
+`deploy/openclaw-reports-alerts.timer`, sends a message through the agent's own
+messaging (`openclaw message send`) when the site stops answering, the database
+can't be read, or a report expected today is late or arrived without signals.
+A problem must show on two checks in a row; it is sent once, with an update if it
+changes and an "all clear" when it is over. Its settings (channel, recipient,
+site address) live in `~/.config/openclaw-reports-ui/alerts.env`, outside the
+repository. `alert_check.sh --test` sends a test message; `--dry-run` prints
+what it would send.
+
 ## Known limitations / good first issues
 
 - **The index lives in memory.** The reports folder is re-scanned at most every

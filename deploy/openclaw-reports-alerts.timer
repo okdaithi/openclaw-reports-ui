@@ -1,0 +1,12 @@
+# Every 15 minutes. Install (user units, no sudo):
+#   cp deploy/openclaw-reports-alerts.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now openclaw-reports-alerts.timer
+[Unit]
+Description=OpenClaw Reports: check for problems every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target
