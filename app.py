@@ -8,11 +8,13 @@ import io
 import os
 import sqlite3
 from datetime import date, timedelta
+from pathlib import Path
 from flask import Flask, Response, render_template, request, jsonify, abort, redirect, url_for
 from modules import charts
 from modules import countries
+from modules import pipeline
 from modules.changes import compare, points
-from modules.report_indexer import ReportIndexer, search_terms
+from modules.report_indexer import ReportIndexer, search_terms, series_label
 from modules.markdown_renderer import MarkdownRenderer
 from modules.db_browser import DatabaseBrowser
 
@@ -62,6 +64,10 @@ REPORT_SORTS = {
 indexer = ReportIndexer()
 renderer = MarkdownRenderer()
 db_browser = DatabaseBrowser()
+# The agent's database loader, whose version the Pipeline page shows
+INSERT_SCRIPT = Path(os.environ.get(
+    'OPENCLAW_INSERT_SCRIPT',
+    Path(db_browser.db_path).parent / 'scripts' / 'intelligence_db_insert.sh'))
 
 @app.context_processor
 def shared_names():
@@ -251,8 +257,10 @@ def report_changes(safe_id):
 
 @app.route('/healthz')
 def healthz():
-    """For monitoring: 200 when reports are indexed and the database reads,
-    else 503. `latest_report_days` says how old the newest dated report is."""
+    """For monitoring: 503 when reports aren't indexed or the database doesn't
+    read. Otherwise 200, with status 'degraded' when a report expected today
+    is late or loaded empty (see /pipeline); ?strict=1 makes that a 503 too.
+    `latest_report_days` says how old the newest dated report is."""
     reports = indexer.refresh()
     dated = [r['report_date'] for r in reports if r['kind'] == 'report' and r['report_date']]
     latest = max(dated) if dated else None
@@ -268,11 +276,18 @@ def healthz():
         finally:
             conn.close()
         body['db'] = 'ok'
+        body['pipeline'] = pipeline.health(pipeline.overview(reports, db_browser._connect))
     except sqlite3.Error as exc:
         body['db'] = f'error: {exc}'
     healthy = bool(reports) and body['db'] == 'ok'
-    body['status'] = 'ok' if healthy else 'fail'
-    return jsonify(body), 200 if healthy else 503
+    if not healthy:
+        body['status'] = 'fail'
+    elif not body['pipeline']['ok']:
+        body['status'] = 'degraded'
+    else:
+        body['status'] = 'ok'
+    failing = body['status'] == 'fail' or (body['status'] == 'degraded' and request.args.get('strict'))
+    return jsonify(body), 503 if failing else 200
 
 
 @app.route('/api/reports/refresh')
@@ -560,6 +575,29 @@ def country_page(slug):
                           total=len(series),
                           error=error,
                           today=date.today())
+
+
+@app.route('/pipeline')
+def pipeline_page():
+    """Today's reports against the usual schedule, and how they loaded"""
+    reports = indexer.refresh()
+    day = charts.as_date(request.args.get('date', ''))
+    try:
+        summary = pipeline.overview(reports, db_browser._connect, day=day)
+        error = None
+    except sqlite3.Error as exc:
+        summary = pipeline.overview(reports, None, day=day)
+        error = str(exc)
+    return render_template('pipeline.html',
+                          summary=summary,
+                          today=date.today(),
+                          label=series_label,
+                          series_slugs={f'mika-{slug}': slug for _, slug in countries.COUNTRIES.values()},
+                          loader=pipeline.loader_version(INSERT_SCRIPT),
+                          min_seen=pipeline.MIN_SEEN,
+                          weeks=pipeline.LOOKBACK_WEEKS,
+                          grace_hours=int(pipeline.GRACE.total_seconds() // 3600),
+                          error=error)
 
 
 @app.route('/api/search')
