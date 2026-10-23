@@ -21,26 +21,27 @@
 {% endmacro %}
 
 {% block content %}
-<div class="report-layout{% if contents %} has-contents{% endif %}">
-{% if contents %}
-<aside class="report-contents">
-    <details id="contents">
-        <summary>Contents</summary>
-        <ol>
-            {% for level, anchor, text in contents %}
-            <li class="toc-level-{{ level }}"><a href="#{{ anchor }}">{{ text }}</a></li>
-            {% endfor %}
-        </ol>
-    </details>
-</aside>
-{% endif %}
-
-<div class="reading-column">
+<div class="reading-column report-reading">
 <div style="margin-bottom: 1rem;">
     <a href="/reports">← Back to Reports</a>
 </div>
 
 {{ series_nav() }}
+
+{% if contents %}
+{# A bar that stays at the top while reading; the list opens over the report #}
+<div class="report-contents" role="navigation" aria-label="Contents">
+    <details id="contents">
+        <summary><span class="contents-label">Contents</span><span class="contents-current" id="contents-current"></span></summary>
+        <ol>
+            {% for level, anchor, text in contents %}
+            <li class="toc-level-{{ level }}"><a href="#{{ anchor }}">{{ text }}</a></li>
+            {% endfor %}
+            <li class="contents-top"><a href="#top">Back to top</a></li>
+        </ol>
+    </details>
+</div>
+{% endif %}
 
 <article class="card">
     <div class="report-header">
@@ -103,19 +104,70 @@
     </div>
 </details>
 </div>
-</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
     window.markRead({{ report.filename | tojson }});
 
-    // Contents start open where they sit beside the report, folded on narrow screens
+    // Contents bar: name the section being read, and close the list after a
+    // choice, a click elsewhere or Escape
     (function() {
         var contents = document.getElementById('contents');
-        if (contents && window.matchMedia('(min-width: 1180px)').matches) {
-            contents.open = true;
+        if (!contents) { return; }
+        var current = document.getElementById('contents-current');
+        var links = Array.prototype.slice.call(contents.querySelectorAll('li:not(.contents-top) a'));
+        var headings = links.map(function(link) {
+            return document.getElementById(decodeURIComponent(link.hash.slice(1)));
+        });
+        var bar = contents.parentNode;
+        var header = document.querySelector('header');
+
+        // Sit just below the header, whose height changes with the screen width
+        function place() {
+            document.documentElement.style.setProperty('--header-height', header.offsetHeight + 'px');
         }
+        place();
+        window.addEventListener('resize', place);
+
+        function update() {
+            // The last heading above the bar's bottom edge is the one being read
+            var edge = bar.getBoundingClientRect().bottom + 24;
+            var active = -1;
+            headings.forEach(function(heading, n) {
+                if (heading && heading.getBoundingClientRect().top <= edge) { active = n; }
+            });
+            links.forEach(function(link, n) {
+                if (n === active) { link.setAttribute('aria-current', 'location'); }
+                else { link.removeAttribute('aria-current'); }
+            });
+            current.textContent = active >= 0 ? links[active].textContent : '';
+        }
+        var pending = false;
+        window.addEventListener('scroll', function() {
+            if (pending) { return; }
+            pending = true;
+            window.requestAnimationFrame(function() { pending = false; update(); });
+        }, {passive: true});
+        update();
+
+        contents.addEventListener('click', function(event) {
+            if (event.target.closest('li a')) { contents.open = false; }
+        });
+        document.addEventListener('click', function(event) {
+            if (contents.open && !contents.contains(event.target)) { contents.open = false; }
+        });
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape' && contents.open) {
+                contents.open = false;
+                contents.querySelector('summary').focus();
+            }
+        });
+        contents.addEventListener('toggle', function() {
+            // Open on the section being read
+            var active = contents.querySelector('a[aria-current]');
+            if (contents.open && active) { active.scrollIntoView({block: 'nearest'}); }
+        });
     })();
 
     // Mark the search terms in the report (text nodes only, so the report's

@@ -89,15 +89,18 @@ def test_contents_list_the_headings_below_the_title():
     assert '<h2 id="geopolitics">' in html and '<h1' not in html
 
 
-def test_a_long_report_gets_a_contents_sidebar_and_a_short_one_does_not(client, reports_dir):
+def test_a_long_report_gets_a_contents_bar_and_a_short_one_does_not(client, reports_dir):
     (reports_dir / f'mika-china-{day(0)}.md').write_text(LONG_REPORT, encoding='utf-8')
     write_report(reports_dir, f'mika-usa-{day(0)}.md', 'Short', body='## Only one\n\nText.')
     app_module.indexer.scan_reports()
     long_page = client.get(f'/reports/mika-china-{day(0)}_md').get_data(as_text=True)
-    assert '<summary>Contents</summary>' in long_page
+    assert '<div class="report-contents" role="navigation" aria-label="Contents">' in long_page
     assert '<a href="#economy">Economy</a>' in long_page
+    assert '<a href="#top">Back to top</a>' in long_page
+    # The report is not squeezed beside a sidebar
+    assert 'report-layout' not in long_page
     short_page = client.get(f'/reports/mika-usa-{day(0)}_md').get_data(as_text=True)
-    assert '<summary>Contents</summary>' not in short_page
+    assert 'class="report-contents"' not in short_page
 
 
 def test_file_details_are_folded_away_and_icons_are_not_the_only_label(client, reports_dir):
