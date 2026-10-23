@@ -12,6 +12,7 @@ from pathlib import Path
 from flask import Flask, Response, render_template, request, jsonify, abort, redirect, url_for
 from modules import charts
 from modules import countries
+from modules import geo
 from modules import pipeline
 from modules.changes import compare, points
 from modules.report_indexer import ReportIndexer, search_terms, series_label
@@ -598,6 +599,37 @@ def pipeline_page():
                           weeks=pipeline.LOOKBACK_WEEKS,
                           grace_hours=int(pipeline.GRACE.total_seconds() // 3600),
                           error=error)
+
+
+@app.route('/geographic')
+def geographic_page():
+    """World map of country risk and signals; drawn in the browser from
+    /static/geo/world.json and /api/geo"""
+    return render_template('geographic.html', today=date.today())
+
+
+@app.route('/api/geo')
+def api_geo():
+    """Each country's risk, signals and reports per day (see modules/geo.py)"""
+    end = charts.as_date(request.args.get('end', '')) or date.today()
+    days = request.args.get('days', 60, type=int)
+    try:
+        return jsonify(geo.timeline(db_browser._connect, indexer.refresh(), end=end, days=days))
+    except sqlite3.Error as exc:
+        return jsonify({'error': str(exc)}), 503
+
+
+@app.route('/api/geo/<code>/signals')
+def api_geo_signals(code):
+    """One country's top signals for the days up to `end`"""
+    if code not in countries.COUNTRIES:
+        abort(404)
+    end = charts.as_date(request.args.get('end', '')) or date.today()
+    days = max(1, min(request.args.get('days', 7, type=int), 60))
+    try:
+        return jsonify({'signals': geo.top_signals(db_browser._connect, code, end, days)})
+    except sqlite3.Error as exc:
+        return jsonify({'error': str(exc)}), 503
 
 
 @app.route('/api/search')
