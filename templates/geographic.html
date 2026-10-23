@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}Geographic - OpenClaw Reports UI{% endblock %}
+
+{% block extra_css %}
+<style>
+    .geo-controls { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: center; }
+    .geo-controls h2 { margin: 0; flex: 1 1 100%; }
+    .geo-controls .text-secondary { flex: 1 1 100%; margin: -0.5rem 0 0; }
+    .geo-group { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .geo-group > label, .geo-group > .geo-label { font-weight: 600; font-size: 0.9rem; margin: 0; }
+    .segmented { display: inline-flex; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
+    .segmented input { position: absolute; opacity: 0; pointer-events: none; }
+    .segmented label { margin: 0; padding: 0.3rem 0.75rem; cursor: pointer; font-size: 0.9rem; font-weight: normal; }
+    .segmented label + input + label, .segmented input + label ~ label { border-left: 1px solid var(--border-color); }
+    .segmented input:checked + label { background: var(--accent-primary); color: white; }
+    .segmented input:focus-visible + label { outline: 2px solid var(--accent-primary); outline-offset: -3px; }
+    .geo-time { flex: 1 1 320px; }
+    .geo-time input[type=range] { flex: 1; min-width: 140px; padding: 0; }
+    .geo-day { font-variant-numeric: tabular-nums; min-width: 7.5rem; font-weight: 600; }
+    .geo-btn {
+        background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color);
+        border-radius: 6px; padding: 0.25rem 0.6rem; font-size: 0.9rem; cursor: pointer; line-height: 1.4;
+    }
+    .geo-btn:hover { background: var(--hover-bg); }
+    .geo-btn[aria-pressed="true"] { background: var(--accent-primary); color: white; border-color: var(--accent-primary); }
+
+    .geo-main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 1rem; align-items: start; }
+    @media (max-width: 1000px) { .geo-main { grid-template-columns: minmax(0, 1fr); } }
+    .geo-map-card { padding: 0; overflow: hidden; position: relative; }
+    .geo-map { position: relative; touch-action: none; user-select: none; -webkit-user-select: none; }
+    .geo-map svg { display: block; width: 100%; height: auto; aspect-ratio: 1000 / 487; cursor: grab; background: var(--geo-sea); }
+    .geo-map svg:focus { outline: none; }
+    .geo-map svg.dragging { cursor: grabbing; }
+    .geo-land path { fill: var(--geo-land); stroke: var(--geo-border); stroke-width: 0.35; vector-effect: non-scaling-stroke; }
+    .geo-land path.covered { cursor: pointer; transition: fill 0.35s; }
+    .geo-land path.covered:hover, .geo-land path.covered.hover { stroke: var(--text-primary); stroke-width: 1.2; }
+    .geo-land path.covered.selected { stroke: var(--accent-primary); stroke-width: 2; }
+    .geo-land path.covered:focus { outline: none; }
+    .geo-land path.covered:focus-visible { stroke: var(--accent-primary); stroke-width: 2.5; }
+    .geo-glyphs g.glyph { cursor: pointer; transition: opacity 0.3s; }
+    /* The ring's centre stays see-through so the country's colour shows */
+    .geo-glyphs .core { fill: transparent; stroke: rgba(0,0,0,0.35); stroke-width: 0.6; vector-effect: non-scaling-stroke; }
+    .geo-glyphs .edge { fill: none; stroke: rgba(0,0,0,0.35); stroke-width: 0.6; vector-effect: non-scaling-stroke; }
+    .geo-glyphs .ring circle { fill: none; transition: stroke-dasharray 0.35s, stroke-dashoffset 0.35s; }
+    .geo-glyphs .pulse { fill: none; stroke: var(--danger); stroke-width: 1.5; vector-effect: non-scaling-stroke; opacity: 0; }
+    .geo-glyphs .rising .pulse { animation: geo-pulse 2s ease-out infinite; }
+    .geo-glyphs.hidden { display: none; }
+    .geo-glyphs g.selected .edge { stroke: var(--accent-primary); stroke-width: 2; }
+    @keyframes geo-pulse { 0% { opacity: 0.9; transform: scale(1); } 100% { opacity: 0; transform: scale(2.4); } }
+    @media (prefers-reduced-motion: reduce) {
+        .geo-glyphs .rising .pulse { animation: none; opacity: 0.8; }
+        .geo-land path.covered, .geo-glyphs .ring circle { transition: none; }
+    }
+
+    .geo-zoom { position: absolute; top: 0.5rem; right: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; }
+    .geo-zoom .geo-btn { width: 2rem; padding: 0.15rem 0; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+    .geo-regions { position: absolute; top: 0.5rem; left: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.25rem; max-width: calc(100% - 4rem); }
+    .geo-regions .geo-btn { font-size: 0.8rem; padding: 0.1rem 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+    .geo-hint {
+        position: absolute; left: 50%; bottom: 3.25rem; transform: translateX(-50%); background: rgba(0,0,0,0.75);
+        color: white; padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.85rem; pointer-events: none;
+        opacity: 0; transition: opacity 0.3s;
+    }
+    .geo-hint.show { opacity: 1; }
+    /* Phones: a taller map to drag around, region buttons above it */
+    @media (max-width: 700px) {
+        .geo-map { display: flex; flex-direction: column; }
+        .geo-map svg { aspect-ratio: auto; height: 380px; }
+        .geo-regions { order: -1; position: static; max-width: none; padding: 0.5rem 0.5rem 0; background: var(--bg-secondary); }
+        .geo-zoom { top: 3.6rem; }
+    }
+    .geo-legend {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.25rem; padding: 0.6rem 1rem;
+        border-top: 1px solid var(--border-light); font-size: 0.8rem; color: var(--text-secondary);
+    }
+    .geo-scale { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .geo-scale .bar { width: 120px; height: 10px; border-radius: 3px; }
+    .geo-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 0.2rem; }
+    .geo-tooltip {
+        position: absolute; pointer-events: none; z-index: 4; min-width: 190px; max-width: 260px;
+        background: var(--bg-secondary); color: var(--text-primary); border-radius: 8px; padding: 0.5rem 0.7rem;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.3); font-size: 0.85rem; line-height: 1.4; display: none;
+    }
+    .geo-tooltip strong { font-size: 0.95rem; }
+    .geo-tooltip .muted { color: var(--text-secondary); }
+    .geo-mini { display: flex; height: 6px; border-radius: 3px; overflow: hidden; margin: 0.3rem 0 0.15rem; background: var(--bg-tertiary); }
+
+    .geo-panel { position: sticky; top: calc(var(--header-height, 4rem) + 0.5rem); max-height: calc(100vh - 6rem); overflow-y: auto; }
+    .geo-panel h3 { margin-top: 0; }
+    .geo-rank { list-style: none; }
+    .geo-rank li button {
+        width: 100%; display: grid; grid-template-columns: 7.5rem minmax(0, 1fr) 3.2rem; align-items: center; gap: 0.5rem;
+        background: none; border: 0; padding: 0.3rem 0.25rem; border-radius: 4px; color: var(--text-primary);
+        cursor: pointer; text-align: left; font-size: 0.9rem;
+    }
+    .geo-rank li button:hover, .geo-rank li button.hover { background: var(--hover-bg); }
+    .geo-rank .bar { height: 8px; border-radius: 4px; background: var(--bg-tertiary); overflow: hidden; }
+    .geo-rank .bar span { display: block; height: 100%; border-radius: 4px; transition: width 0.35s; }
+    .geo-rank .val { text-align: right; font-variant-numeric: tabular-nums; }
+    .geo-rank .stale { color: var(--text-secondary); font-size: 0.75rem; }
+    .geo-detail .big { font-size: 2.2rem; font-weight: 700; line-height: 1; }
+    .geo-detail .chip { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 10px; font-size: 0.8rem; font-weight: 600; }
+    .geo-detail .up { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+    .geo-detail .down { background: color-mix(in srgb, var(--success) 18%, transparent); color: var(--success); }
+    .geo-detail .flat { background: var(--bg-tertiary); color: var(--text-secondary); }
+    .geo-detail section { margin-top: 1rem; }
+    .geo-detail h4 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); margin-bottom: 0.35rem; }
+    .geo-spark { width: 100%; height: 60px; display: block; }
+    .geo-spark .line { fill: none; stroke: var(--accent-primary); stroke-width: 2; vector-effect: non-scaling-stroke; }
+    .geo-spark .now { stroke: var(--text-secondary); stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
+    .geo-spark .dot { fill: var(--accent-primary); }
+    .geo-spark-wrap { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.35rem; align-items: stretch; }
+    .geo-spark-axis { display: flex; flex-direction: column; justify-content: space-between; font-size: 0.7rem; color: var(--text-secondary); text-align: right; }
+    .geo-cats { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--bg-tertiary); }
+    .geo-cat-list { list-style: none; display: flex; flex-wrap: wrap; gap: 0.15rem 0.9rem; font-size: 0.8rem; margin-top: 0.35rem; }
+    .geo-signals { list-style: none; }
+    .geo-signals li { padding: 0.4rem 0; border-bottom: 1px solid var(--border-light); font-size: 0.875rem; line-height: 1.35; }
+    .geo-signals li:last-child { border-bottom: 0; }
+    .geo-signals .meta { font-size: 0.75rem; color: var(--text-secondary); }
+    .geo-links { list-style: none; display: grid; gap: 0.3rem; }
+    .geo-error { padding: 1rem; }
+    :root { --geo-sea: #dfeaf3; --geo-land: #d6d9dc; --geo-border: #ffffff; --geo-neutral: #ececec; --geo-low: #eef3fa; }
+    [data-theme="dark"] { --geo-sea: #16212b; --geo-land: #3b4148; --geo-border: #23282e; --geo-neutral: #5d636b; --geo-low: #23364a; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="geo" data-world="{{ url_for('static', filename='geo/world.json') }}" data-api="{{ url_for('api_geo') }}">
+<div class="card geo-controls">
+    <h2>Geographic</h2>
+    <p class="text-secondary">Risk and signals by country. Click a country for its signals and reports; move through time with the slider or play it.</p>
+    <div class="geo-group" role="radiogroup" aria-label="Colour countries by">
+        <span class="geo-label">Colour by</span>
+        <span class="segmented">
+            <input type="radio" name="metric" id="metric-risk" value="risk" checked><label for="metric-risk">Risk</label>
+            <input type="radio" name="metric" id="metric-change" value="change"><label for="metric-change">7-day change</label>
+            <input type="radio" name="metric" id="metric-signals" value="signals"><label for="metric-signals">Signals</label>
+        </span>
+    </div>
+    <div class="geo-group">
+        <label for="geo-window">Signals over</label>
+        <select id="geo-window" style="width: auto;">
+            <option value="1">the day</option>
+            <option value="3">3 days</option>
+            <option value="7" selected>7 days</option>
+            <option value="14">14 days</option>
+        </select>
+        <label style="font-weight: normal;"><input type="checkbox" id="geo-glyphs" checked> signal rings</label>
+    </div>
+    <div class="geo-group geo-time">
+        <button type="button" class="geo-btn" id="geo-play" aria-pressed="false" aria-label="Play through the days">&#9654;</button>
+        <input type="range" id="geo-day" min="0" max="0" value="0" aria-label="Day">
+        <output class="geo-day" id="geo-day-label" for="geo-day"></output>
+        <button type="button" class="geo-btn" id="geo-today">Today</button>
+    </div>
+</div>
+
+<div class="geo-main">
+    <div class="card geo-map-card">
+        <div class="geo-map" id="geo-map">
+            <p class="geo-error" id="geo-loading">Loading the map…</p>
+            <div class="geo-regions" role="group" aria-label="Zoom to a region">
+                <button type="button" class="geo-btn" data-region="world">World</button>
+                <button type="button" class="geo-btn" data-region="americas">Americas</button>
+                <button type="button" class="geo-btn" data-region="europe">Europe</button>
+                <button type="button" class="geo-btn" data-region="mideast">Middle East</button>
+                <button type="button" class="geo-btn" data-region="asia">Asia-Pacific</button>
+                <button type="button" class="geo-btn" data-region="africa">Africa</button>
+            </div>
+            <div class="geo-zoom" role="group" aria-label="Zoom">
+                <button type="button" class="geo-btn" id="geo-zoom-in" aria-label="Zoom in">+</button>
+                <button type="button" class="geo-btn" id="geo-zoom-out" aria-label="Zoom out">&minus;</button>
+            </div>
+            <div class="geo-hint" id="geo-hint" aria-hidden="true"></div>
+            <div class="geo-tooltip" id="geo-tooltip" role="status" aria-live="off"></div>
+        </div>
+        <div class="geo-legend" id="geo-legend"></div>
+    </div>
+    <aside class="card geo-panel" id="geo-panel" aria-live="polite"></aside>
+</div>
+<noscript><div class="card">The map needs JavaScript. The same figures are on the <a href="/countries">Countries</a> and <a href="/charts">Charts</a> pages.</div></noscript>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/geographic.js') }}"></script>
+{% endblock %}
