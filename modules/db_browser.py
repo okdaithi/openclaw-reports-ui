@@ -4,6 +4,7 @@ Database Browser - Read-only SQLite browser for intelligence database
 import os
 import re
 import sqlite3
+import time
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 
@@ -163,11 +164,14 @@ class DatabaseBrowser:
             print(f"Error querying table {table_name}: {e}")
             return [], 0
 
-    def execute_select(self, query: str, max_rows: Optional[int] = None) -> Tuple[List[Dict], Optional[str]]:
+    def execute_select(self, query: str, max_rows: Optional[int] = None,
+                       time_limit: float = 5.0) -> Tuple[List[Dict], Optional[str]]:
         """Execute a SELECT query (read-only, validated).
 
         With max_rows, at most max_rows + 1 rows are fetched, so a caller can
-        tell the result was cut short without reading all of it.
+        tell the result was cut short without reading all of it. A query
+        still running after `time_limit` seconds is stopped, so one heavy
+        query (a cross join, say) can't tie up the server.
         """
         # Security: ensure it's a single SELECT statement
         query_stripped = query.strip().rstrip(';')
@@ -175,8 +179,10 @@ class DatabaseBrowser:
             return [], "Only a single statement is allowed"
 
         query_upper = query_stripped.upper()
-        if not query_upper.startswith('SELECT'):
-            return [], "Only SELECT queries are allowed"
+        # A WITH (common table expression) leads into a SELECT; the keyword
+        # check below and the read-only connection still apply
+        if not re.match(r'(SELECT|WITH)\b', query_upper):
+            return [], "Only SELECT queries are allowed (a WITH ... SELECT is fine)"
 
         # Block dangerous keywords (word-boundary match so e.g. "updated_at"
         # as a column name isn't mistaken for the UPDATE keyword)
@@ -185,19 +191,29 @@ class DatabaseBrowser:
             if re.search(rf'\b{keyword}\b', query_upper):
                 return [], f"Query contains forbidden keyword: {keyword}"
 
+        conn = None
+        deadline = time.monotonic() + time_limit
         try:
             conn = self._connect()
+            # Called every few thousand steps; a true return stops the query
+            conn.set_progress_handler(lambda: time.monotonic() > deadline, 10000)
             cursor = conn.cursor()
             cursor.execute(query_stripped)
 
             # Convert to dicts
             fetched = cursor.fetchall() if max_rows is None else cursor.fetchmany(max_rows + 1)
             rows = [dict(row) for row in fetched]
-
-            conn.close()
             return rows, None
+        except sqlite3.OperationalError as e:
+            if time.monotonic() > deadline and 'interrupt' in str(e).lower():
+                return [], (f"The query was stopped after {time_limit:g} seconds. Narrow it down "
+                            "(a WHERE clause, fewer joins) or add a LIMIT.")
+            return [], str(e)
         except Exception as e:
             return [], str(e)
+        finally:
+            if conn is not None:
+                conn.close()
 
     def get_db_stats(self) -> Dict:
         """Get database statistics"""

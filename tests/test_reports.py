@@ -182,4 +182,4 @@ def test_a_design_note_has_no_series_links(client, reports_dir):
     write_report(reports_dir, 'README.md', 'Read me')
     app_module.indexer.scan_reports()
     page = client.get('/reports/README_md').get_data(as_text=True)
-    assert 'series-nav' not in page.split('</style>')[1]
+    assert 'series-nav' not in page.split('<main')[1]

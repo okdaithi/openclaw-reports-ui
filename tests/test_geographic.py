@@ -29,7 +29,7 @@ def test_the_map_has_every_covered_country_inside_its_frame():
 def test_the_page_loads_the_map_script_and_is_in_the_nav(client, db):
     page = client.get('/geographic').get_data(as_text=True)
     assert 'js/geographic.js' in page
-    assert 'data-world="/static/geo/world.json"' in page and 'data-api="/api/geo"' in page
+    assert 'data-world="/static/geo/world.json?v=' in page and 'data-api="/api/geo"' in page
     assert '<a href="/geographic" class="active" aria-current="page">Geographic</a>' in page
 
 

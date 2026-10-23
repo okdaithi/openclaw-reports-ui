@@ -150,4 +150,4 @@ def test_report_links_carry_what_read_markers_need(client, reports_dir):
 def test_the_menu_has_the_new_pages(client, reports_dir):
     text = client.get('/digest').get_data(as_text=True)
     assert '<a href="/digest" class="active" aria-current="page">Digest</a>' in text
-    assert '<a href="/countries" >Countries</a>' in text
+    assert '<a href="/countries">Countries</a>' in text
