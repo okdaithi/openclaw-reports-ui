@@ -14,6 +14,7 @@ from flask import Flask, Response, render_template, request, jsonify, abort, red
 from modules import charts
 from modules import countries
 from modules import connections
+from modules import entities
 from modules import geo
 from modules import pipeline
 from modules.changes import compare, points
@@ -28,6 +29,7 @@ app.config['TEMPLATES_AUTO_RELOAD'] = True
 # Static files are linked with ?v=<modified time> (asset() below), so a
 # browser may keep them for a week and still sees a new version at once
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 7 * 24 * 3600
+app.jinja_env.globals['timedelta'] = timedelta
 
 MAX_PER_PAGE = 500
 REPORTS_PER_PAGE = 50
@@ -38,6 +40,8 @@ EXPORT_SECONDS = 30        # and its CSV download after this long
 CONTENTS_MIN_HEADINGS = 3  # fewer headings than this: no contents bar
 RISK_RANGES = {'30': 30, '90': 90, 'all': None}
 DIGEST_POINTS = 4          # new points shown per report in the digest
+COUNTRY_DAYS = 30          # window for a country page's entities and sources
+ENTITY_WINDOWS = (7, 30, 90, 180)
 WATCH_DAYS = 7             # how far back /api/search looks by default
 
 # Ready-made queries for the Query page: the four views, then a few joins
@@ -91,8 +95,9 @@ def static_assets():
 
 @app.context_processor
 def shared_names():
-    """Country slugs for links from any page (code -> slug)"""
-    return {'country_slugs': {code: slug for code, (_, slug) in countries.COUNTRIES.items()}}
+    """Country slugs for links from any page (code -> slug), and code -> name"""
+    return {'country_slugs': {code: slug for code, (_, slug) in countries.COUNTRIES.items()},
+            'other_name': lambda code: countries.COUNTRY_NAMES.get(code, code)}
 
 
 # Scan reports on startup
@@ -579,9 +584,15 @@ def country_page(slug):
         risk = charts.risk_trends(db_browser._connect, 90)
         country_risk = next((c for c in risk['charts'] if c['code'] == country['code']), None)
         signals = charts.recent_signals(db_browser._connect, country['code'])
+        top_entities = entities.country_entities(db_browser._connect, country['code'], days=COUNTRY_DAYS)
+        top_sources = entities.country_sources(db_browser._connect, country['code'], days=COUNTRY_DAYS)
+        links = [l for l in _cached(('links', date.today(), 14),
+                                    lambda: connections.links(db_browser._connect, date.today(), 14))['links']
+                 if country['code'] in (l['a'], l['b'])][:8]
         error = None
     except sqlite3.Error as exc:
         risk, country_risk, signals, error = None, None, [], str(exc)
+        top_entities, top_sources, links = [], [], []
     return render_template('country.html',
                           country=country,
                           latest=latest,
@@ -593,6 +604,10 @@ def country_page(slug):
                           signals=signals,
                           recent=list(reversed(series[-10:])),
                           total=len(series),
+                          top_entities=top_entities,
+                          top_sources=top_sources,
+                          links=links,
+                          country_days=COUNTRY_DAYS,
                           error=error,
                           today=date.today())
 
@@ -708,9 +723,135 @@ def _cached(key, compute):
     return value
 
 
+def spark(values, width=120, height=24):
+    """SVG polyline points for a small chart of `values` (zero at the bottom)"""
+    if not values:
+        return ''
+    top = max(values) or 1
+    step = width / max(1, len(values) - 1)
+    return ' '.join(f'{i * step:.1f},{height - 2 - (v / top) * (height - 4):.1f}' for i, v in enumerate(values))
+
+
+def report_for(code, day):
+    """The country report of `code` dated `day` (an ISO date), if indexed"""
+    slug = countries.COUNTRIES.get(code, (None, None))[1]
+    if not slug:
+        return None
+    for report in indexer.series_reports(f'mika-{slug}'):
+        if report['report_date'] and report['report_date'].isoformat() == day:
+            return report
+    return None
+
+
+def window_arg(default, allowed=ENTITY_WINDOWS):
+    days = request.args.get('days', default, type=int)
+    return days if days in allowed else default
+
+
+@app.route('/entities')
+def entities_page():
+    """Everything the reports mention, most reports first"""
+    days = window_arg(30)
+    try:
+        listing = entities.entity_list(db_browser._connect, days=days)
+        error = None
+    except sqlite3.Error as exc:
+        listing, error = {'entities': [], 'types': [], 'days': days}, str(exc)
+    for entry in listing['entities']:
+        entry['spark'] = spark(entry['daily'])
+    return render_template('entities.html', listing=listing, days=days, windows=ENTITY_WINDOWS,
+                           kind=request.args.get('type', ''), error=error)
+
+
+@app.route('/entity/<name>')
+def entity_page(name):
+    """One entity: when it was mentioned, by which countries, with what"""
+    days = window_arg(90)
+    indexer.refresh()
+    try:
+        detail = entities.entity_detail(db_browser._connect, name, days=days)
+    except sqlite3.Error as exc:
+        return render_template('entity.html', detail=None, name=name, error=str(exc), days=days, windows=ENTITY_WINDOWS)
+    if detail is None:
+        abort(404)
+    for entry in detail['reports']:
+        entry['report'] = report_for(entry['country'], entry['date'])
+    for entry in detail['signals']:
+        entry['report'] = report_for(entry['country'], entry['date'])
+    top = max(detail['timeline']) if detail['timeline'] else 0
+    return render_template('entity.html', detail=detail, name=name, days=days, windows=ENTITY_WINDOWS,
+                           timeline_top=top, slug_of={c: s for c, (_, s) in countries.COUNTRIES.items()}, error=None)
+
+
+@app.route('/network')
+def network_page():
+    """Entities and countries as a graph, drawn by static/js/network.js"""
+    return render_template('network.html', windows=ENTITY_WINDOWS)
+
+
+@app.route('/api/network')
+def api_network():
+    end = charts.as_date(request.args.get('end', '')) or date.today()
+    days = window_arg(30)
+    limit = max(10, min(request.args.get('limit', 60, type=int), 150))
+    try:
+        return jsonify(_cached(('network', end, days, limit),
+                               lambda: entities.network(db_browser._connect, end=end, days=days, limit=limit)))
+    except sqlite3.Error as exc:
+        return jsonify({'error': str(exc)}), 503
+
+
+@app.route('/compare')
+def compare_page():
+    """Two countries side by side"""
+    codes = sorted(countries.COUNTRIES, key=lambda c: countries.COUNTRY_NAMES[c])
+    a = request.args.get('a', 'CHN')
+    b = request.args.get('b', 'USA')
+    if a not in countries.COUNTRIES:
+        a = 'CHN'
+    if b not in countries.COUNTRIES:
+        b = 'USA'
+    days = window_arg(30, (7, 14, 30, 90))
+    indexer.refresh()
+    sides, error, link, chart = [], None, None, None
+    try:
+        risk = charts.risk_trends(db_browser._connect, 90)
+        by_code = {c['code']: c for c in risk['charts']}
+        for code in (a, b):
+            info = countries.describe(code)
+            series = indexer.series_reports(info['series'])
+            sides.append({
+                **info,
+                'risk': by_code.get(code),
+                'categories': entities.category_counts(db_browser._connect, code, days=days),
+                'entities': entities.country_entities(db_browser._connect, code, days=days, limit=12),
+                'all_entities': entities.country_entities(db_browser._connect, code, days=days, limit=200),
+                'sources': entities.country_sources(db_browser._connect, code, days=days, limit=6),
+                'latest': series[-1] if series else None,
+            })
+        chart = charts.pair_chart(risk, a, b)
+        if a != b:
+            link = next((l for l in _cached(('links', date.today(), days if days <= 60 else 60),
+                                            lambda: connections.links(db_browser._connect, date.today(), min(days, 60)))['links']
+                         if {l['a'], l['b']} == {a, b}), None)
+    except sqlite3.Error as exc:
+        error = str(exc)
+    shared = []
+    if len(sides) == 2:
+        # Entities both mention, leaving out the two countries themselves
+        pair = {countries.COUNTRY_NAMES[a], countries.COUNTRY_NAMES[b]}
+        left = {e['name']: e for e in sides[0]['all_entities'] if e['name'] not in pair}
+        shared = sorted(((left[e['name']], e) for e in sides[1]['all_entities'] if e['name'] in left),
+                        key=lambda p: -(p[0]['reports'] + p[1]['reports']))[:20]
+    return render_template('compare.html', a=a, b=b, days=days, codes=codes, names=countries.COUNTRY_NAMES,
+                           sides=sides, shared=shared, link=link, chart=chart, categories=charts.CATEGORIES,
+                           error=error)
+
+
 # The pages the go-to palette (Ctrl+K) offers, in nav order
 PALETTE_PAGES = [('Home', '/'), ('Digest', '/digest'), ('Reports', '/reports'), ('Countries', '/countries'),
-                 ('Geographic', '/geographic'), ('Charts', '/charts'), ('Pipeline', '/pipeline'),
+                 ('Compare', '/compare'), ('Geographic', '/geographic'), ('Network', '/network'),
+                 ('Entities', '/entities'), ('Charts', '/charts'), ('Pipeline', '/pipeline'),
                  ('Database', '/database'), ('Query', '/database/query')]
 PALETTE_REPORTS = 6
 
@@ -742,7 +883,7 @@ def api_palette():
         names = {item['label'].casefold() for item in items}
         for name, kind, mentions in rows:
             if name.casefold() not in names:
-                items.append({'kind': 'Entity', 'label': name, 'url': url_for('reports', q=f'"{name}"'),
+                items.append({'kind': 'Entity', 'label': name, 'url': url_for('entity_page', name=name),
                               'detail': f'{mentions} mentions'})
         found = [r for r in indexer.search(query) if r['kind'] == 'report'][:PALETTE_REPORTS] if len(query) > 1 else []
     else:

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Entities - OpenClaw Reports UI{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Entities</h2>
+    <p class="text-secondary">People, organisations and places the reports mention, over the last {{ days }} days: in how many
+        reports, by how many countries' reports, and day by day. A country's own reports don't count as mentioning it.</p>
+    <div class="range-links" role="navigation" aria-label="Time range">
+        {% for n in windows %}
+        {% if n == days %}<span aria-current="true">{{ n }} days</span>{% else %}<a href="{{ url_for('entities_page', days=n, type=kind or None) }}">{{ n }} days</a>{% endif %}
+        {% endfor %}
+    </div>
+    <div class="entity-filters">
+        <input type="search" id="entity-filter" placeholder="Filter by name" aria-label="Filter entities by name" autocomplete="off">
+        <span class="range-links" role="group" aria-label="Type">
+            {% if not kind %}<span aria-current="true">All</span>{% else %}<a href="{{ url_for('entities_page', days=days) }}">All</a>{% endif %}
+            {% for t in listing.types %}
+            {% if t == kind %}<span aria-current="true">{{ t | capitalize }}</span>{% else %}<a href="{{ url_for('entities_page', days=days, type=t) }}">{{ t | capitalize }}</a>{% endif %}
+            {% endfor %}
+        </span>
+        <a href="/network?days={{ days if days in (7, 30, 90, 180) else 30 }}">See them as a network</a>
+    </div>
+    {% if error %}<div class="alert alert-error">The database could not be read: {{ error }}</div>{% endif %}
+</div>
+
+<div class="card">
+    {% set shown = listing.entities | selectattr('type', 'equalto', kind) | list if kind else listing.entities %}
+    {% if shown %}
+    <div class="table-scroll">
+    <table id="entity-table">
+        <thead><tr><th>Entity</th><th>Type</th><th class="num">Reports</th><th class="num">Countries</th><th class="num">Importance</th><th>Last {{ days }} days</th><th>Latest</th></tr></thead>
+        <tbody>
+            {% for e in shown %}
+            <tr data-name="{{ e.name | lower }}">
+                <td><a href="{{ url_for('entity_page', name=e.name, days=days if days in windows else None) }}">{{ e.name }}</a></td>
+                <td><span class="type-chip type-{{ e.type }}">{{ e.type }}</span></td>
+                <td class="num">{{ e.reports }}</td>
+                <td class="num">{{ e.countries }}</td>
+                <td class="num" title="Average over its mentions: the impact of the signals naming it, or their share of the report">{{ e.importance if e.importance is not none else '' }}</td>
+                <td><svg class="spark" viewBox="0 0 120 24" preserveAspectRatio="none" role="img" aria-label="{{ e.mentions }} mentions over {{ days }} days"><polyline points="{{ e.spark }}"/></svg></td>
+                <td class="nowrap">{{ e.last }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    <p class="text-secondary" id="entity-none" hidden>No entity matches that filter.</p>
+    {% else %}
+    <p class="text-secondary">No entity mentions in this window. Entities are recorded by the agent's loader from v1.5 (23 Oct 2026).</p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function() {
+        var box = document.getElementById('entity-filter');
+        if (!box) { return; }
+        var rows = Array.prototype.slice.call(document.querySelectorAll('#entity-table tbody tr'));
+        box.addEventListener('input', function() {
+            var text = box.value.trim().toLowerCase(), shown = 0;
+            rows.forEach(function(row) {
+                var hit = !text || row.dataset.name.indexOf(text) >= 0;
+                row.hidden = !hit;
+                shown += hit;
+            });
+            document.getElementById('entity-none').hidden = shown > 0;
+        });
+    })();
+</script>
+{% endblock %}

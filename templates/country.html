@@ -9,7 +9,7 @@
 </div>
 
 <div class="card">
-    <h2>{{ country.name }}</h2>
+    <h2>{{ country.name }} <small class="text-secondary" style="font-size: 0.9rem; font-weight: normal;"><a href="/compare?a={{ country.code }}&amp;b={{ 'USA' if country.code != 'USA' else 'CHN' }}">compare</a></small></h2>
     {% if latest %}
     <p>
         Latest: {{ report_link(latest) }}
@@ -77,6 +77,40 @@
     {% else %}
     <div class="chart"><h4>Risk, last 90 days</h4><p class="chart-note">No risk scores.</p></div>
     {% endif %}
+
+    <div class="card" style="margin-top: 1rem;">
+        <h3>Connected to, last 14 days</h3>
+        {% if links %}
+        <ul class="today-list">
+            {% for l in links %}
+            {% set other = l.b if l.a == country.code else l.a %}
+            <li><a href="/compare?a={{ country.code }}&amp;b={{ other }}">{{ other_name(other) }}</a>
+                <small class="text-secondary">{{ l.ab + l.ba }} mentions{% if l.sources %}, {{ l.sources }} shared source{{ '' if l.sources == 1 else 's' }}{% endif %}{% if l.entities %}; both: {{ l.entities[:3] | join(', ') }}{% endif %}</small>
+                <a href="/geographic?link={{ l.a }}-{{ l.b }}&amp;window=14" class="text-secondary" style="font-size: 0.8rem;">map</a></li>
+            {% endfor %}
+        </ul>
+        {% else %}<p class="text-secondary">No strong links in the last 14 days.</p>{% endif %}
+    </div>
+
+    <div class="card" style="margin-top: 1rem;">
+        <h3>Mentions most, last {{ country_days }} days</h3>
+        {% if top_entities %}
+        <ul class="chip-list">
+            {% for e in top_entities %}<li><a href="{{ url_for('entity_page', name=e.name) }}">{{ e.name }} <span class="text-secondary">{{ e.reports }}</span></a></li>{% endfor %}
+        </ul>
+        <p class="chart-note">Numbers: reports that mention it. <a href="{{ url_for('entity_page', name=country.name) }}">Who mentions {{ country.name }}</a></p>
+        {% else %}<p class="text-secondary">No entity mentions yet.</p>{% endif %}
+    </div>
+
+    <div class="card" style="margin-top: 1rem;">
+        <h3>Cites most, last {{ country_days }} days</h3>
+        {% if top_sources %}
+        <ul class="bar-list">
+            {% set most = top_sources[0].citations %}
+            {% for s in top_sources %}<li>{{ s.domain }}<span class="bar"><span style="width: {{ 100 * s.citations / most }}%"></span></span><span class="num">{{ s.citations }}</span></li>{% endfor %}
+        </ul>
+        {% else %}<p class="text-secondary">No sources recorded.</p>{% endif %}
+    </div>
 
     <div class="card" style="margin-top: 1rem;">
         <h3>Recent reports</h3>

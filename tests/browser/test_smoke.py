@@ -68,6 +68,11 @@ def build_sample(root: Path):
                            VALUES (?, ?, ?, ?, ?, 'negative')''',
                         (rid, category, f'{other} talks {n}', f'{other} and Taiwan', 40 + n * 10))
                 conn.execute("INSERT INTO sources (report_id, url, domain) VALUES (?, 'https://news.example/shared', 'news.example')", (rid,))
+                other_name = 'USA' if code == 'CHN' else 'China'
+                for name, kind in ((other_name, 'country'), ('Taiwan', 'country')):
+                    conn.execute("INSERT OR IGNORE INTO entities (name, type, first_seen_date) VALUES (?, ?, '2026-01-01')", (name, kind))
+                    conn.execute('''INSERT INTO entity_mentions (report_id, entity_id, mention_count, importance_score)
+                                    VALUES (?, (SELECT id FROM entities WHERE name = ?), 2, 50)''', (rid, name))
     return reports, db
 
 
@@ -175,3 +180,16 @@ def test_on_a_phone_the_search_button_opens_the_palette(browser, server):
     page.fill('#palette-input', 'usa')
     page.wait_for_selector('#palette-list li:has-text("USA")')
     context.close()
+
+
+def test_the_network_draws_and_a_click_opens_a_node(page, server):
+    page.goto(server + '/network')
+    page.wait_for_selector('#net-svg[data-settled="1"]')
+    page.click('.net-node[data-id="USA"] circle')
+    page.wait_for_selector('#net-panel h3:has-text("USA")')
+    assert 'focus=USA' in page.url
+
+
+def test_compare_draws_both_lines(page, server):
+    page.goto(server + '/compare?a=CHN&b=USA')
+    assert page.locator('.pair-chart .line').count() == 2

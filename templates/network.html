@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Network - OpenClaw Reports UI{% endblock %}
+
+{% block content %}
+<div id="net" data-api="{{ url_for('api_network') }}">
+<div class="card net-controls">
+    <h2>Network</h2>
+    <p class="text-secondary">Countries and the people, organisations and places their reports mention, joined when they appear in the
+        same report (thicker: more reports). Drag to move things, hover to see a node's neighbours, click for detail.</p>
+    <div class="geo-group">
+        <label for="net-days">Over</label>
+        <select id="net-days" style="width: auto;">{% for n in windows %}<option value="{{ n }}"{% if n == 30 %} selected{% endif %}>{{ n }} days</option>{% endfor %}</select>
+        <label for="net-min">Links in at least</label>
+        <input type="range" id="net-min" min="1" max="10" value="2" style="width: 8rem;">
+        <output id="net-min-label" for="net-min">2 reports</output>
+        <input type="search" id="net-find" placeholder="Find…" aria-label="Find an entity" autocomplete="off" style="width: 10rem;">
+        <button type="button" class="btn-small" id="net-reset">Re-arrange</button>
+    </div>
+    <div class="net-legend" id="net-legend" role="group" aria-label="Show types"></div>
+</div>
+<div class="net-main">
+    <div class="card net-card">
+        <svg id="net-svg" role="img" aria-label="Network of entities and countries"></svg>
+        <p class="net-status" id="net-status">Loading…</p>
+        <div class="geo-tooltip" id="net-tooltip"></div>
+    </div>
+    <aside class="card net-panel" id="net-panel" aria-live="polite"></aside>
+</div>
+<noscript><div class="card">The network needs JavaScript; the <a href="/entities">Entities</a> page lists the same data.</div></noscript>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ asset('js/network.js') }}"></script>
+{% endblock %}

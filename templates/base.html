@@ -22,7 +22,10 @@
     {% set path = request.path %}
     {# (label, url, active?) for the menus; a menu shows as active when one of its pages is #}
     {% set explore = [('Countries', '/countries', path.startswith('/countr')),
+                      ('Compare', '/compare', path.startswith('/compare')),
                       ('Geographic', '/geographic', path.startswith('/geographic')),
+                      ('Network', '/network', path.startswith('/network')),
+                      ('Entities', '/entities', path.startswith('/entit')),
                       ('Charts', '/charts', path.startswith('/charts'))] %}
     {% set data_pages = [('Pipeline', '/pipeline', path.startswith('/pipeline')),
                          ('Database', '/database', path.startswith('/database') and not path.startswith('/database/query')),
